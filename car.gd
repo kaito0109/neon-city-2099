@@ -11,6 +11,7 @@ var _cam_pivot: Node3D
 var _cam_spring: SpringArm3D
 var _camera: Camera3D
 var _headlight: SpotLight3D
+var _cone: MeshInstance3D
 var _glow_light: OmniLight3D
 var _loop: Array[Vector3] = []
 var _wp: int = 0
@@ -33,8 +34,8 @@ func build(color: Color) -> void:
 	_add_box(Vector3(1.85, 0.5, 4.25), Vector3(0, 0.62, 0), _mat(body_color, 0.0, 0.35))
 	_add_box(Vector3(1.6, 0.45, 2.1), Vector3(0, 1.05, -0.25), _mat(Color(0.03, 0.05, 0.1), 0.0, 0.15))
 	_add_box(Vector3(1.9, 0.14, 4.35), Vector3(0, 0.34, 0), _mat(Color(0.05, 0.9, 1.0), 2.8, 0.4))
-	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, 2.14), _mat(Color(1.0, 0.95, 0.75), 3.5, 0.4))
-	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, -2.14), _mat(Color(1.0, 0.1, 0.25), 3.0, 0.4))
+	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, -2.14), _mat(Color(1.0, 0.95, 0.75), 3.5, 0.4))
+	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, 2.14), _mat(Color(1.0, 0.1, 0.25), 3.0, 0.4))
 	for sx in [-0.95, 0.95]:
 		for sz in [-1.45, 1.45]:
 			_add_box(Vector3(0.22, 0.3, 0.8), Vector3(sx, 0.32, sz), _mat(Color(0.02, 0.02, 0.04), 0.0, 0.6))
@@ -60,9 +61,37 @@ func build(color: Color) -> void:
 	_headlight.light_energy = 0.0
 	_headlight.spot_range = 26.0
 	_headlight.spot_angle = 32.0
-	_headlight.position = Vector3(0, 0.9, 2.0)
+	_headlight.position = Vector3(0, 0.9, -2.0)
 	_headlight.rotation_degrees.x = -6.0
 	add_child(_headlight)
+	# Fake volumetric headlight cone (additive gradient cylinder, front = -Z).
+	_cone = MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.16
+	cyl.bottom_radius = 1.7
+	cyl.height = 8.6
+	_cone.mesh = cyl
+	var cm := StandardMaterial3D.new()
+	cm.albedo_texture = _cone_texture()
+	cm.albedo_color = Color(1.0, 0.95, 0.8, 1.0)
+	cm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	cm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_cone.material_override = cm
+	_cone.position = Vector3(0, 0.78, -6.45)
+	_cone.rotation_degrees.x = 90.0
+	_cone.visible = false
+	_body.add_child(_cone)
+
+func _cone_texture() -> ImageTexture:
+	# Vertical gradient: bright at the lamp end (v=1), fading out forward.
+	var img := Image.create(8, 64, false, Image.FORMAT_RGBA8)
+	for y in range(64):
+		var v: float = 1.0 - float(y) / 63.0
+		var a: float = pow(v, 1.6) * 0.22
+		img.fill_rect(Rect2i(0, y, 8, 1), Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
 
 func _mat(color: Color, emission: float, rough: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -88,11 +117,15 @@ func set_driven(on: bool) -> void:
 	mode = "driven" if on else "parked"
 	speed = 0.0
 	_headlight.light_energy = 2.2 if on else 0.0
+	if _cone != null:
+		_cone.visible = on
 	if on and _camera != null:
 		_camera.make_current()
 
 func set_traffic(block_center: Vector3, half: float) -> void:
 	mode = "traffic"
+	if _cone != null:
+		_cone.visible = true
 	var lane: float = 4.2
 	_loop = [
 		block_center + Vector3(-half - lane, 0, -half - lane),

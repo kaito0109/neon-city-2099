@@ -21,6 +21,14 @@ var _mat_ground: StandardMaterial3D
 var _window_mats: Array = []
 var _neon_mats: Array = []
 var _mat_dark_metal: StandardMaterial3D
+var _mat_beacon: StandardMaterial3D
+var _mat_edge_line: StandardMaterial3D
+var _mat_crosswalk: StandardMaterial3D
+var _mat_puddle: StandardMaterial3D
+var _mat_pool: StandardMaterial3D
+var _mat_bulb: StandardMaterial3D
+var _glow_tex: ImageTexture
+var _t: float = 0.0
 
 const NEON_COLORS: Array[Color] = [
 	Color(1.0, 0.15, 0.55), Color(0.1, 0.9, 1.0), Color(1.0, 0.75, 0.1),
@@ -63,11 +71,45 @@ func _window_texture() -> ImageTexture:
 			img.set_pixel(x, y, c)
 	return ImageTexture.create_from_image(img)
 
+func _glow_texture() -> ImageTexture:
+	# Soft radial gradient (white, alpha falls off) for fake glow pools.
+	var s: int = 128
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var center: float = (s - 1) * 0.5
+	for y in range(s):
+		for x in range(s):
+			var d: float = Vector2(x - center, y - center).length() / center
+			var a: float = pow(clampf(1.0 - d, 0.0, 1.0), 2.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
+
 func _make_materials() -> void:
-	_mat_asphalt = _mat(Color(0.05, 0.05, 0.085), 0.0, 0.55)
+	_mat_asphalt = _mat(Color(0.05, 0.05, 0.085), 0.0, 0.34)
 	_mat_sidewalk = _mat(Color(0.12, 0.12, 0.17), 0.0, 0.9)
 	_mat_ground = _mat(Color(0.012, 0.012, 0.03), 0.0, 1.0)
 	_mat_dark_metal = _mat(Color(0.05, 0.05, 0.08), 0.0, 0.5)
+	_glow_tex = _glow_texture()
+	# Aviation beacons (shared material, blinked in _process).
+	_mat_beacon = _mat(Color(1.0, 0.12, 0.2), 2.4, 0.4)
+	# Road edge lines: pale, unshaded so they read at night without glowing.
+	_mat_edge_line = StandardMaterial3D.new()
+	_mat_edge_line.albedo_color = Color(0.32, 0.42, 0.55)
+	_mat_edge_line.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Crosswalk stripes: plain light concrete.
+	_mat_crosswalk = _mat(Color(0.5, 0.55, 0.62), 0.0, 0.9)
+	# Puddles: darker, much smoother than asphalt -> moon/neon sheen.
+	_mat_puddle = _mat(Color(0.09, 0.12, 0.2), 0.0, 0.12)
+	_mat_puddle.metallic = 0.55
+	# Fake streetlight pools on the road (additive gradient quads).
+	_mat_pool = StandardMaterial3D.new()
+	_mat_pool.albedo_texture = _glow_tex
+	_mat_pool.albedo_color = Color(0.35, 0.6, 0.85, 0.34)
+	_mat_pool.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_mat_pool.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_mat_pool.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_mat_pool.no_depth_test = false
+	# Streetlight bulbs.
+	_mat_bulb = _mat(Color(0.75, 0.95, 1.0), 2.4, 0.4)
 	for i in range(5):
 		var tex: ImageTexture = _window_texture()
 		var m := StandardMaterial3D.new()
@@ -107,6 +149,8 @@ func build(font: Font) -> void:
 	_build_blocks()
 	_build_holo()
 	_build_boundary()
+	_build_skyline()
+	_build_sky()
 
 func _build_ground_and_roads() -> void:
 	# Base ground slab + physics.
@@ -166,6 +210,94 @@ func _build_ground_and_roads() -> void:
 	pmi.multimesh = pm
 	pmi.material_override = _mat_dark_metal
 	add_child(pmi)
+	# Streetlight bulbs + fake light pools under each pole (v1.1 visuals).
+	var bulb_mesh := SphereMesh.new()
+	bulb_mesh.radius = 0.15
+	bulb_mesh.height = 0.3
+	var bm2 := MultiMesh.new()
+	bm2.transform_format = MultiMesh.TRANSFORM_3D
+	bm2.mesh = bulb_mesh
+	bm2.instance_count = poles.size()
+	for k in range(poles.size()):
+		var pp: Vector3 = poles[k].origin
+		bm2.set_instance_transform(k, Transform3D(Basis.IDENTITY, pp + Vector3(0, 2.62, 0)))
+	var bmi := MultiMeshInstance3D.new()
+	bmi.multimesh = bm2
+	bmi.material_override = _mat_bulb
+	add_child(bmi)
+	var pool_mesh := QuadMesh.new()
+	pool_mesh.size = Vector2(8.5, 8.5)
+	var qm := MultiMesh.new()
+	qm.transform_format = MultiMesh.TRANSFORM_3D
+	qm.mesh = pool_mesh
+	qm.instance_count = poles.size()
+	var flat := Basis(Vector3.RIGHT, -PI * 0.5)
+	for k in range(poles.size()):
+		var pp2: Vector3 = poles[k].origin
+		qm.set_instance_transform(k, Transform3D(flat, Vector3(pp2.x, 0.085, pp2.z)))
+	var qmi := MultiMeshInstance3D.new()
+	qmi.multimesh = qm
+	qmi.material_override = _mat_pool
+	add_child(qmi)
+	_build_road_details()
+
+func _build_road_details() -> void:
+	# Edge lines along every road strip (thin pale boxes, one per side).
+	for i in range(-N, N + 1):
+		var c: float = i * BLOCK
+		for s in [-1.0, 1.0]:
+			_box(self, Vector3(EXTENT * 2 + ROAD_W, 0.05, 0.26), Vector3(0, 0.075, c + s * (ROAD_W * 0.5 - 0.6)), _mat_edge_line)
+			_box(self, Vector3(0.26, 0.05, EXTENT * 2 + ROAD_W), Vector3(c + s * (ROAD_W * 0.5 - 0.6), 0.075, 0), _mat_edge_line)
+	# Crosswalks at every intersection (zebra stripes, one MultiMesh).
+	var stripe := BoxMesh.new()
+	stripe.size = Vector3(0.55, 0.05, 3.4)
+	var cm := MultiMesh.new()
+	cm.transform_format = MultiMesh.TRANSFORM_3D
+	cm.mesh = stripe
+	var cts: Array[Transform3D] = []
+	var rot90 := Basis(Vector3.UP, PI * 0.5)
+	for i in range(-N, N + 1):
+		for j in range(-N, N + 1):
+			var cx: float = i * BLOCK
+			var cz: float = j * BLOCK
+			for s in [-1.0, 1.0]:
+				# Crossing the Z-running road, walking along X.
+				for k in range(5):
+					cts.append(Transform3D(Basis.IDENTITY,
+						Vector3(cx - 2.2 + k * 1.1, 0.08, cz + s * (ROAD_W * 0.5 + 2.6))))
+				# Crossing the X-running road, walking along Z.
+				for k in range(5):
+					cts.append(Transform3D(rot90,
+						Vector3(cx + s * (ROAD_W * 0.5 + 2.6), 0.08, cz - 2.2 + k * 1.1)))
+	cm.instance_count = cts.size()
+	for k in range(cts.size()):
+		cm.set_instance_transform(k, cts[k])
+	var cmi := MultiMeshInstance3D.new()
+	cmi.multimesh = cm
+	cmi.material_override = _mat_crosswalk
+	add_child(cmi)
+	# Puddles on the roads (flattened discs, glossy material).
+	var disc := CylinderMesh.new()
+	disc.top_radius = 1.0
+	disc.bottom_radius = 1.0
+	disc.height = 0.02
+	var dm := MultiMesh.new()
+	dm.transform_format = MultiMesh.TRANSFORM_3D
+	dm.mesh = disc
+	var count: int = 110
+	dm.instance_count = count
+	for k in range(count):
+		var road_c: float = float(_rng.randi_range(-N, N)) * BLOCK
+		var along: float = _rng.randf_range(-EXTENT + 12.0, EXTENT - 12.0)
+		var off: float = _rng.randf_range(-5.2, 5.2)
+		var pos: Vector3 = Vector3(along, 0.078, road_c + off) if k % 2 == 0 else Vector3(road_c + off, 0.078, along)
+		var r: float = _rng.randf_range(1.1, 2.9)
+		var b := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(r, 1.0, r * _rng.randf_range(0.55, 0.85)))
+		dm.set_instance_transform(k, Transform3D(b, pos))
+	var dmi := MultiMeshInstance3D.new()
+	dmi.multimesh = dm
+	dmi.material_override = _mat_puddle
+	add_child(dmi)
 
 func _build_blocks() -> void:
 	var kiosk_spots: Array[Vector2] = [Vector2(-2, -2), Vector2(2, -1), Vector2(0, 2), Vector2(-3, 2), Vector2(3, 3)]
@@ -205,6 +337,25 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	# Neon roof trim.
 	var neon: Material = _neon_mats[_rng.randi() % _neon_mats.size()]
 	_box(self, Vector3(fp.x + 0.5, 0.5, fp.y + 0.5), Vector3(center.x, height + 0.35, center.z), neon)
+	# Rooftop antenna + blinking beacon on tall towers (v1.1 visuals).
+	if height > 38.0:
+		var ant := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.06
+		cyl.bottom_radius = 0.14
+		cyl.height = _rng.randf_range(3.5, 6.5)
+		ant.mesh = cyl
+		ant.position = Vector3(center.x, height + 0.27 + cyl.height * 0.5, center.z)
+		ant.material_override = _mat_dark_metal
+		add_child(ant)
+		var bec := MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		sph.radius = 0.3
+		sph.height = 0.6
+		bec.mesh = sph
+		bec.position = Vector3(center.x, height + 0.27 + cyl.height + 0.3, center.z)
+		bec.material_override = _mat_beacon
+		add_child(bec)
 	# Wall sign on a random side for many buildings.
 	if _rng.randf() < 0.55:
 		var side: int = _rng.randi() % 4
@@ -288,6 +439,99 @@ func _build_boundary() -> void:
 		_box(self, Vector3(690, 0.6, 1.7), Vector3(0, 16.2, s * (EXTENT + 6)), _neon_mats[3])
 		_box(self, Vector3(1.7, 0.6, 690), Vector3(s * (EXTENT + 6), 16.2, 0), _neon_mats[3])
 
+func _build_skyline() -> void:
+	# Distant mega-towers beyond the playable boundary: the city never ends.
+	var idx: int = 0
+	var ang: float = 0.0
+	while ang < TAU:
+		var r: float = _rng.randf_range(425.0, 540.0)
+		var pos := Vector3(cos(ang) * r, 0, sin(ang) * r)
+		var w: float = _rng.randf_range(28.0, 58.0)
+		var h: float = _rng.randf_range(55.0, 165.0)
+		if idx % 9 == 4:
+			h = _rng.randf_range(180.0, 235.0)
+		var wm: StandardMaterial3D = _window_mats[_rng.randi() % _window_mats.size()]
+		var tower := _box(self, Vector3(w, h, w), Vector3(pos.x, h * 0.5, pos.z), wm)
+		tower.rotation.y = _rng.randf() * PI
+		if _rng.randf() < 0.35:
+			_box(self, Vector3(w + 0.6, 0.5, w + 0.6), Vector3(pos.x, h + 0.3, pos.z), _neon_mats[_rng.randi() % _neon_mats.size()])
+		if h > 120.0:
+			var ant := MeshInstance3D.new()
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.15
+			cyl.bottom_radius = 0.3
+			cyl.height = 9.0
+			ant.mesh = cyl
+			ant.position = Vector3(pos.x, h + 4.5, pos.z)
+			ant.material_override = _mat_dark_metal
+			add_child(ant)
+			var bec := MeshInstance3D.new()
+			var sph := SphereMesh.new()
+			sph.radius = 0.8
+			sph.height = 1.6
+			bec.mesh = sph
+			bec.position = Vector3(pos.x, h + 9.2, pos.z)
+			bec.material_override = _mat_beacon
+			add_child(bec)
+		ang += _rng.randf_range(0.10, 0.17)
+		idx += 1
+
+func _build_sky() -> void:
+	# Stars (one MultiMesh of tiny boxes, fog disabled so they stay visible).
+	var star_mat := StandardMaterial3D.new()
+	star_mat.albedo_color = Color(0.8, 0.88, 1.0)
+	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	star_mat.disable_fog = true
+	var star_mesh := BoxMesh.new()
+	star_mesh.size = Vector3(1.5, 1.5, 1.5)
+	var sm := MultiMesh.new()
+	sm.transform_format = MultiMesh.TRANSFORM_3D
+	sm.mesh = star_mesh
+	var scount: int = 240
+	sm.instance_count = scount
+	for k in range(scount):
+		var dir := Vector3(_rng.randf_range(-1.0, 1.0), _rng.randf_range(0.16, 1.0), _rng.randf_range(-1.0, 1.0)).normalized()
+		var s: float = _rng.randf_range(0.7, 1.9)
+		sm.set_instance_transform(k, Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)), dir * 880.0))
+	var smi := MultiMeshInstance3D.new()
+	smi.multimesh = sm
+	smi.material_override = star_mat
+	add_child(smi)
+	# Moon: bright disc + soft halo, billboarded, fog disabled.
+	var moon_pos := Vector3(-430, 305, -690)
+	var disc_mat := StandardMaterial3D.new()
+	disc_mat.albedo_texture = _glow_tex
+	disc_mat.albedo_color = Color(1.5, 1.65, 1.9, 1.0)
+	disc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	disc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	disc_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	disc_mat.disable_fog = true
+	var disc := MeshInstance3D.new()
+	var dq := QuadMesh.new()
+	dq.size = Vector2(88, 88)
+	disc.mesh = dq
+	disc.material_override = disc_mat
+	disc.position = moon_pos
+	add_child(disc)
+	var halo_mat := StandardMaterial3D.new()
+	halo_mat.albedo_texture = _glow_tex
+	halo_mat.albedo_color = Color(0.4, 0.52, 0.95, 0.5)
+	halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	halo_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	halo_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	halo_mat.disable_fog = true
+	var halo := MeshInstance3D.new()
+	var hq := QuadMesh.new()
+	hq.size = Vector2(280, 280)
+	halo.mesh = hq
+	halo.material_override = halo_mat
+	halo.position = moon_pos
+	add_child(halo)
+
 func _process(delta: float) -> void:
+	_t += delta
 	if holo != null:
 		holo.rotation.y += delta * 0.25
+	if _mat_beacon != null:
+		_mat_beacon.emission_energy_multiplier = 1.4 + (sin(_t * 2.2) * 0.5 + 0.5) * 2.8
