@@ -250,6 +250,10 @@ func _process(delta: float) -> void:
 		touch_buttons["BRK"].visible = driving
 		touch_buttons["JUMP"].visible = not driving
 		touch_buttons["DASH"].visible = not driving
+		# ACT shares its spot with GAS; while driving, move ACT to the
+		# (hidden) DASH slot so the exit button stays tappable.
+		touch_buttons["ACT"].position = Vector2(vsize.x - 108, vsize.y - 288) if driving \
+			else Vector2(vsize.x - 108, vsize.y - 196)
 		var td := Vector2(joystick.get("value").x, 0.0)
 		if _gas:
 			td.y = 1.0

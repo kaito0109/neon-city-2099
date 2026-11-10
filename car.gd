@@ -181,8 +181,10 @@ func _drive(delta: float) -> void:
 	move_and_slide()
 	if get_slide_collision_count() > 0 and absf(speed) > 6.0:
 		speed *= 0.55
-	# Camera looks along heading, FOV widens with speed.
-	_cam_pivot.rotation = Vector3(-0.22, heading, 0.0)
+	# Camera pivot is a child of the car, whose root already rotates by
+	# heading — applying heading here too double-rotates the rig (at a
+	# 180-degree turn the camera ended up in FRONT of the car).
+	_cam_pivot.rotation = Vector3(-0.22, 0.0, 0.0)
 	_camera.fov = 70.0 + clampf(absf(speed) / MAX_SPEED, 0.0, 1.0) * 10.0
 
 func _traffic(delta: float) -> void:
