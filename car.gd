@@ -103,12 +103,7 @@ func _try_blender_model() -> bool:
 	# forward. Guarded by tests/v12_test.gd (in-frame centroid check —
 	# transforms read in _initialize are stale and mislead; the in-game
 	# check is authoritative).
-	if not ResourceLoader.exists(MODEL_PATH):
-		return false
-	var ps: PackedScene = load(MODEL_PATH) as PackedScene
-	if ps == null:
-		return false
-	var inst: Node3D = ps.instantiate() as Node3D
+	var inst: Node3D = ModelLoader.load_model(MODEL_PATH)
 	if inst == null:
 		return false
 	inst.rotation.y = PI
