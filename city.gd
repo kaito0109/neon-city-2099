@@ -151,6 +151,8 @@ func build(font: Font) -> void:
 	_build_boundary()
 	_build_skyline()
 	_build_sky()
+	_build_blender_props()
+	_build_hero_towers()
 
 func _build_ground_and_roads() -> void:
 	# Base ground slab + physics.
@@ -528,6 +530,124 @@ func _build_sky() -> void:
 	halo.material_override = halo_mat
 	halo.position = moon_pos
 	add_child(halo)
+
+# --- v1.2 Blender models: street props + hero towers -------------------
+# Loaded at runtime (not preload) so a missing GLB can never break the
+# scene: the city simply falls back to the v1.1 procedural look.
+
+func _load_model(path: String) -> PackedScene:
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as PackedScene
+
+func _place(ps: PackedScene, parent: Node, pos: Vector3, rot_y: float, scl: float = 1.0) -> Node3D:
+	if ps == null:
+		return null
+	var inst: Node3D = ps.instantiate() as Node3D
+	if inst == null:
+		return null
+	inst.position = pos
+	inst.rotation.y = rot_y
+	inst.scale = Vector3.ONE * scl
+	parent.add_child(inst)
+	return inst
+
+func _build_blender_props() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242  # separate seed: never perturbs the v1 city layout
+	var vend: PackedScene = _load_model("res://assets/models/vending_machine.glb")
+	var totem: PackedScene = _load_model("res://assets/models/holo_totem.glb")
+	var traffic: PackedScene = _load_model("res://assets/models/traffic_light.glb")
+	var root := Node3D.new()
+	root.name = "BlenderProps"
+	add_child(root)
+	var dirs: Array[Vector3] = [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
+	# Vending machines + holo totems on sidewalk blocks.
+	var vend_left: int = 16
+	var totem_left: int = 14
+	for blk in sidewalk_blocks:
+		var center: Vector3 = blk["center"]
+		var half: float = float(blk["half"])
+		if vend != null and vend_left > 0 and rng.randf() < 0.30:
+			var dir: Vector3 = dirs[rng.randi() % dirs.size()]
+			var side_off: float = rng.randf_range(-9.0, 9.0)
+			var pos: Vector3 = center + dir * (half - 2.4)
+			if dir.x != 0.0:
+				pos.z += side_off
+			else:
+				pos.x += side_off
+			pos.y = 0.27
+			# Model fronts face local +Z after glTF import; aim +Z at dir.
+			var inst: Node3D = _place(vend, root, pos, atan2(dir.x, dir.z))
+			if inst != null:
+				inst.name = "Vending"
+				_apply_vending_glass(inst)
+				vend_left -= 1
+		if totem != null and totem_left > 0 and rng.randf() < 0.26:
+			var sx: float = 1.0 if rng.randf() < 0.5 else -1.0
+			var sz: float = 1.0 if rng.randf() < 0.5 else -1.0
+			var off := Vector3(sx * (half - 2.0), 0, sz * (half - 2.0))
+			var pos2: Vector3 = center + off
+			pos2.y = 0.27
+			var inst2: Node3D = _place(totem, root, pos2, atan2(off.x, off.z))
+			if inst2 != null:
+				inst2.name = "HoloTotem"
+				totem_left -= 1
+	# Traffic lights at selected intersections (arm reaches over the road).
+	if traffic != null:
+		var spots: Array = [[-3, -3], [-3, 0], [-3, 3], [0, -3], [0, 3], [3, -3],
+			[3, 0], [3, 3], [-1, -1], [1, 1], [-1, 2], [2, -1]]
+		var corners: Array = [[1, 1], [-1, 1], [1, -1], [-1, -1]]
+		for k in range(spots.size()):
+			var ij: Array = spots[k]
+			var cn: Array = corners[k % corners.size()]
+			var pos3 := Vector3(float(ij[0]) * BLOCK + float(cn[0]) * (ROAD_W * 0.5 + 1.7), 0.05,
+				float(ij[1]) * BLOCK + float(cn[1]) * (ROAD_W * 0.5 + 1.7))
+			var dir3 := Vector3(-float(cn[0]), 0, -float(cn[1])).normalized()
+			# Arm extends along local +Z after glTF import; aim it at the centre.
+			var inst3: Node3D = _place(traffic, root, pos3, atan2(dir3.x, dir3.z))
+			if inst3 != null:
+				inst3.name = "TrafficLight"
+
+func _apply_vending_glass(node: Node) -> void:
+	# The glTF exporter drops the display glass's alpha (it arrives as an
+	# opaque dark material, hiding the drink rows), so re-apply a real
+	# transparent material on the VendGlass surface here.
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for i in range(mi.mesh.get_surface_count()):
+				var m: Material = mi.mesh.surface_get_material(i)
+				if m != null and m.resource_name == "VendGlass":
+					var g := StandardMaterial3D.new()
+					g.albedo_color = Color(0.35, 0.6, 0.85, 0.28)
+					g.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+					g.metallic = 0.1
+					g.roughness = 0.08
+					mi.set_surface_override_material(i, g)
+	for c in node.get_children():
+		_apply_vending_glass(c)
+
+func _build_hero_towers() -> void:
+	# Distinct silhouettes on the skyline so the city has landmarks, not
+	# just scaled copies of the same box (the main v1 tell vs. Night City).
+	var root := Node3D.new()
+	root.name = "HeroTowers"
+	add_child(root)
+	var defs: Array = [
+		["res://assets/models/hero_tower_a.glb", 0.35, 475.0, 1.25, 0.4],
+		["res://assets/models/hero_tower_b.glb", 2.35, 490.0, 1.15, 1.2],
+		["res://assets/models/hero_tower_c.glb", 4.15, 465.0, 1.30, 0.0],
+		["res://assets/models/hero_tower_a.glb", 5.55, 525.0, 1.55, 2.1],
+	]
+	for d in defs:
+		var ps: PackedScene = _load_model(d[0])
+		if ps == null:
+			continue
+		var ang: float = d[1]
+		var r: float = d[2]
+		var pos := Vector3(cos(ang) * r, 0, sin(ang) * r)
+		_place(ps, root, pos, float(d[4]), float(d[3]))
 
 func _process(delta: float) -> void:
 	_t += delta

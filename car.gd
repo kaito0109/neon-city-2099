@@ -31,14 +31,15 @@ func build(color: Color) -> void:
 	add_child(shape)
 	_body = Node3D.new()
 	add_child(_body)
-	_add_box(Vector3(1.85, 0.5, 4.25), Vector3(0, 0.62, 0), _mat(body_color, 0.0, 0.35))
-	_add_box(Vector3(1.6, 0.45, 2.1), Vector3(0, 1.05, -0.25), _mat(Color(0.03, 0.05, 0.1), 0.0, 0.15))
-	_add_box(Vector3(1.9, 0.14, 4.35), Vector3(0, 0.34, 0), _mat(Color(0.05, 0.9, 1.0), 2.8, 0.4))
-	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, -2.14), _mat(Color(1.0, 0.95, 0.75), 3.5, 0.4))
-	_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, 2.14), _mat(Color(1.0, 0.1, 0.25), 3.0, 0.4))
-	for sx in [-0.95, 0.95]:
-		for sz in [-1.45, 1.45]:
-			_add_box(Vector3(0.22, 0.3, 0.8), Vector3(sx, 0.32, sz), _mat(Color(0.02, 0.02, 0.04), 0.0, 0.6))
+	if not _try_blender_model():
+		_add_box(Vector3(1.85, 0.5, 4.25), Vector3(0, 0.62, 0), _mat(body_color, 0.0, 0.35))
+		_add_box(Vector3(1.6, 0.45, 2.1), Vector3(0, 1.05, -0.25), _mat(Color(0.03, 0.05, 0.1), 0.0, 0.15))
+		_add_box(Vector3(1.9, 0.14, 4.35), Vector3(0, 0.34, 0), _mat(Color(0.05, 0.9, 1.0), 2.8, 0.4))
+		_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, -2.14), _mat(Color(1.0, 0.95, 0.75), 3.5, 0.4))
+		_add_box(Vector3(1.5, 0.1, 0.15), Vector3(0, 0.72, 2.14), _mat(Color(1.0, 0.1, 0.25), 3.0, 0.4))
+		for sx in [-0.95, 0.95]:
+			for sz in [-1.45, 1.45]:
+				_add_box(Vector3(0.22, 0.3, 0.8), Vector3(sx, 0.32, sz), _mat(Color(0.02, 0.02, 0.04), 0.0, 0.6))
 	_glow_light = OmniLight3D.new()
 	_glow_light.light_color = Color(0.1, 0.85, 1.0)
 	_glow_light.light_energy = 0.7
@@ -92,6 +93,46 @@ func _cone_texture() -> ImageTexture:
 		var a: float = pow(v, 1.6) * 0.22
 		img.fill_rect(Rect2i(0, y, 8, 1), Color(1, 1, 1, a))
 	return ImageTexture.create_from_image(img)
+
+const MODEL_PATH := "res://assets/models/hover_car.glb"
+
+func _try_blender_model() -> bool:
+	# v1.2: Blender-modeled hover car (beveled wedge hull, glass canopy,
+	# thruster pods, rear wing). In imported mesh space the nose sits at
+	# +Z (LightFront centroid z=+2.21), so rotate PI to face Godot's -Z
+	# forward. Guarded by tests/v12_test.gd (in-frame centroid check —
+	# transforms read in _initialize are stale and mislead; the in-game
+	# check is authoritative).
+	if not ResourceLoader.exists(MODEL_PATH):
+		return false
+	var ps: PackedScene = load(MODEL_PATH) as PackedScene
+	if ps == null:
+		return false
+	var inst: Node3D = ps.instantiate() as Node3D
+	if inst == null:
+		return false
+	inst.rotation.y = PI
+	inst.name = "HoverCarModel"
+	_tint_body(inst)
+	_body.add_child(inst)
+	return true
+
+func _tint_body(node: Node) -> void:
+	# Repaint only the BodyPaint surfaces with this car's color; glass,
+	# lights and neon keep the materials baked in Blender.
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for i in range(mi.mesh.get_surface_count()):
+				var m: Material = mi.mesh.surface_get_material(i)
+				if m != null and m.resource_name.find("BodyPaint") >= 0:
+					var paint := StandardMaterial3D.new()
+					paint.albedo_color = body_color
+					paint.metallic = 0.6
+					paint.roughness = 0.32
+					mi.set_surface_override_material(i, paint)
+	for c in node.get_children():
+		_tint_body(c)
 
 func _mat(color: Color, emission: float, rough: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()

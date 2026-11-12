@@ -51,6 +51,14 @@ jobs:
           curl -L -o assets/jpfont.ttf "https://raw.githubusercontent.com/google/fonts/main/ofl/mplus1p/MPLUS1p-Regular.ttf"
           ls -lh assets/
 
+      - name: Decode Blender models (stored as base64 text in repo)
+        run: |
+          mkdir -p assets/models
+          for f in assets/models_b64/*.b64; do
+            base64 -d "$f" > "assets/models/$(basename "${f%.b64}")"
+          done
+          ls -lh assets/models/
+
       - name: Import project
         run: godot --headless --path . --import --quit
 
