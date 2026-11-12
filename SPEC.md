@@ -180,7 +180,10 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   グリーブル（凹凸の生活感）なし、車は箱5個、ビルは窓テクスチャ箱1個、
   遠景は同型箱の拡大コピーでランドマーク不在。
 - 配布方式: GLB のバイト列を ModelBlob リソース（.tres、テキスト形式）に
-  格納し（assets/model_data/）、実行時に GLTFDocument で復元する
+  格納し（assets/model_data/）、実行時に GLTFDocument で復元する。
+  復元後、発光（emission）サーフェスは unshaded 化する（model_loader の
+  マテリアル修復）。シェーディング付き emission は WebGL/llvmpipe で
+  白飛びして色が消えるため、街の他のネオンと同じ unshaded 表現に揃える
   （model_loader.gd）。テキストpush制約と「.b64等の素ファイルは Web の
   pck に入らない」制約を同時に回避でき、CI ワークフローの変更は不要。
   ローカル開発では実 .glb があればそちらを優先。GLB を全て隠した状態で

@@ -68,7 +68,7 @@ func _process(_delta: float) -> bool:
 				var base: Material = mi.mesh.surface_get_material(i)
 				if base != null:
 					names += base.resource_name + "|"
-				if mi.get_surface_override_material(i) != null:
+				if base != null and base.resource_name == "BodyPaint" and mi.get_surface_override_material(i) != null:
 					tinted = true
 		print("car surface materials: ", names)
 		_ok(tinted, "BodyPaint surface tinted with car color")
@@ -100,6 +100,32 @@ func _process(_delta: float) -> bool:
 		_ok(_count_props(city, "TrafficLight") == 12, "traffic lights placed (%d)" % _count_props(city, "TrafficLight"))
 		var heroes: Node = city.get_node_or_null("HeroTowers")
 		_ok(heroes != null and heroes.get_child_count() == 4, "hero towers placed (%d)" % (heroes.get_child_count() if heroes != null else -1))
+		# --- Neon repair: glTF emission must become unshaded overrides ---
+		var totem: Node = null
+		for c in city.get_node("BlenderProps").get_children():
+			if c.name.begins_with("HoloTotem"):
+				totem = c
+				break
+		var tmi: MeshInstance3D = _find_model(totem)
+		var pink := false
+		var cyan := false
+		for i in range(tmi.mesh.get_surface_count()):
+			var om: Material = tmi.get_surface_override_material(i)
+			if om is StandardMaterial3D:
+				var osm := om as StandardMaterial3D
+				if osm.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED:
+					if osm.albedo_color.r > 0.9 and osm.albedo_color.b > 0.6:
+						pink = true
+					if osm.albedo_color.b > 0.6 and osm.albedo_color.r < 0.3:
+						cyan = true
+		_ok(pink and cyan, "totem neon panels repaired to unshaded (pink=%s cyan=%s)" % [pink, cyan])
+		var rear_ok := false
+		for i in range(mi.mesh.get_surface_count()):
+			var om2: Material = mi.get_surface_override_material(i)
+			if om2 is StandardMaterial3D and om2.resource_name == "LightRear":
+				var osm2 := om2 as StandardMaterial3D
+				rear_ok = osm2.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED and osm2.albedo_color.r > 0.8 and osm2.albedo_color.g < 0.3
+		_ok(rear_ok, "car LightRear repaired to unshaded red")
 		# --- Drive camera regression at heading PI ---
 		car.call("set_driven", true)
 		car.set("heading", PI)
