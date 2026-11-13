@@ -12,6 +12,8 @@ var poi_terminals: Array[Vector3] = []
 var poi_pickups: Array[Vector3] = []
 var sidewalk_blocks: Array = []  # {center: Vector3, half: float}
 var _buildings: Array = []  # {center, fp, height} for facade relief
+var _tank_xforms: Array[Transform3D] = []
+var skybridge_count: int = 0
 var holo: Node3D
 var _rng := RandomNumberGenerator.new()
 var _font: Font
@@ -50,27 +52,54 @@ func _mat(color: Color, emission: float = 0.0, rough: float = 0.85) -> StandardM
 		m.emission_energy_multiplier = emission
 	return m
 
-func _window_texture() -> ImageTexture:
+func _window_texture(style: int = 0) -> ImageTexture:
 	# NOTE: keep this an albedo-only texture at UV scale 1. On the software-GL
 	# verification pipeline, material uv1_scale corrupts texture sampling and
 	# emission_texture blows out to white; an unshaded albedo texture renders
-	# correctly everywhere. A tall grid keeps windows small on any facade.
+	# correctly everywhere. Styles vary palette / lit ratio / window size
+	# so buildings stop looking cloned.
+	var palettes: Array = [
+		[Color(1.0, 0.8, 0.45), Color(0.55, 0.85, 1.0), Color(1.0, 0.45, 0.7)],
+		[Color(1.0, 0.78, 0.42), Color(1.0, 0.86, 0.58), Color(0.92, 0.62, 0.3)],
+		[Color(0.5, 0.85, 1.0), Color(0.72, 0.95, 1.0), Color(0.35, 0.6, 1.0)],
+		[Color(1.0, 0.3, 0.6), Color(0.75, 0.35, 1.0), Color(1.0, 0.55, 0.82)],
+		[Color(0.35, 1.0, 0.7), Color(0.62, 1.0, 0.86), Color(0.2, 0.85, 0.9)],
+	]
+	var pal: Array = palettes[style % palettes.size()]
+	var lit: float = [0.30, 0.44, 0.24, 0.38, 0.27][style % 5]
+	var cell_h: int = [1, 1, 2, 1, 3][style % 5]
 	var w: int = 48
 	var h: int = 96
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
-	for y in range(h):
-		for x in range(w):
-			var c := Color(0.035, 0.045, 0.1)
-			if _rng.randf() < 0.30:
-				var pick: float = _rng.randf()
-				if pick < 0.55:
-					c = Color(1.0, 0.8, 0.45) * _rng.randf_range(0.5, 1.0)
-				elif pick < 0.8:
-					c = Color(0.55, 0.85, 1.0) * _rng.randf_range(0.5, 1.0)
-				else:
-					c = Color(1.0, 0.45, 0.7) * _rng.randf_range(0.5, 1.0)
-			img.set_pixel(x, y, c)
+	img.fill(Color(0.03, 0.04, 0.09))
+	var cy: int = 0
+	while cy < h:
+		var cx: int = 0
+		while cx < w:
+			if _rng.randf() < lit:
+				var col: Color = pal[_rng.randi() % pal.size()] * _rng.randf_range(0.45, 1.0)
+				for yy in range(cy, mini(cy + cell_h, h)):
+					for xx in range(cx, mini(cx + 2, w)):
+						img.set_pixel(xx, yy, col)
+			cx += 2
+		cy += cell_h
 	return ImageTexture.create_from_image(img)
+
+func _district_indices(pos: Vector3) -> Array:
+	var d: float = Vector2(pos.x, pos.z).length()
+	if d < 110.0:
+		return [0, 1, 2, 3, 4, 5]
+	if absf(pos.x) > absf(pos.z):
+		return [3, 0, 1] if pos.x > 0.0 else [4, 1, 2]
+	return [1, 3, 4] if pos.z < 0.0 else [2, 5, 0]
+
+func _district_neon_mat(pos: Vector3) -> Material:
+	var idx: Array = _district_indices(pos)
+	return _neon_mats[idx[_rng.randi() % idx.size()]]
+
+func _district_neon_color(pos: Vector3, rng: RandomNumberGenerator) -> Color:
+	var idx: Array = _district_indices(pos)
+	return NEON_COLORS[idx[rng.randi() % idx.size()]]
 
 func _glow_texture() -> ImageTexture:
 	# Soft radial gradient (white, alpha falls off) for fake glow pools.
@@ -112,8 +141,8 @@ func _make_materials() -> void:
 	_mat_pool.no_depth_test = false
 	# Streetlight bulbs.
 	_mat_bulb = _mat(Color(0.75, 0.95, 1.0), 2.4, 0.4)
-	for i in range(5):
-		var tex: ImageTexture = _window_texture()
+	for i in range(10):
+		var tex: ImageTexture = _window_texture(i)
 		var m := StandardMaterial3D.new()
 		m.albedo_texture = tex
 		m.albedo_color = Color(1, 1, 1)
@@ -179,6 +208,8 @@ func build(font: Font) -> void:
 	_build_hero_towers()
 	_build_facade_kits()
 	_build_facade_relief()
+	_build_elevated()
+	_build_hills()
 
 func _build_ground_and_roads() -> void:
 	# Base ground slab + physics.
@@ -361,11 +392,28 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	if _rng.randf() < 0.12:
 		height = _rng.randf_range(48.0, 72.0)
 	_buildings.append({"center": center, "fp": fp, "height": height})
-	var wm: StandardMaterial3D = _window_mats[_rng.randi() % _window_mats.size()]
+	# Per-building duplicate + tint: same texture family, different tone.
+	var wm: StandardMaterial3D = (_window_mats[_rng.randi() % _window_mats.size()] as StandardMaterial3D).duplicate() as StandardMaterial3D
+	var bright: float = _rng.randf_range(0.72, 1.12)
+	wm.albedo_color = Color(bright * _rng.randf_range(0.9, 1.06), bright, bright * _rng.randf_range(0.9, 1.1))
 	_box(self, Vector3(fp.x, height, fp.y), Vector3(center.x, height * 0.5 + 0.27, center.z), wm, true)
-	# Neon roof trim.
-	var neon: Material = _neon_mats[_rng.randi() % _neon_mats.size()]
+	# Neon roof trim (district-biased colour).
+	var neon: Material = _district_neon_mat(center)
 	_box(self, Vector3(fp.x + 0.5, 0.5, fp.y + 0.5), Vector3(center.x, height + 0.35, center.z), neon)
+	# Silhouette variety: setback crown on tall towers, annex on big mid-rises.
+	if height > 34.0:
+		var h2: float = height * _rng.randf_range(0.22, 0.4)
+		var fp2: Vector2 = fp * _rng.randf_range(0.55, 0.72)
+		_box(self, Vector3(fp2.x, h2, fp2.y), Vector3(center.x, height + 0.27 + h2 * 0.5, center.z), wm, true)
+		_box(self, Vector3(fp2.x + 0.5, 0.4, fp2.y + 0.5), Vector3(center.x, height + 0.27 + h2 + 0.2, center.z), neon)
+		_buildings.append({"center": center, "fp": fp2, "height": height + h2})
+	elif height > 17.0 and fp.x > 30.0 and _rng.randf() < 0.35:
+		var ah: float = _rng.randf_range(4.5, 8.5)
+		var sgn: float = 1.0 if _rng.randf() < 0.5 else -1.0
+		if _rng.randf() < 0.5:
+			_box(self, Vector3(4.2, ah, fp.y * 0.66), Vector3(center.x + sgn * (fp.x * 0.5 + 2.1), 0.27 + ah * 0.5, center.z), wm, true)
+		else:
+			_box(self, Vector3(fp.x * 0.66, ah, 4.2), Vector3(center.x, 0.27 + ah * 0.5, center.z + sgn * (fp.y * 0.5 + 2.1)), wm, true)
 	# Rooftop antenna + blinking beacon on tall towers (v1.1 visuals).
 	if height > 38.0:
 		var ant := MeshInstance3D.new()
@@ -599,6 +647,7 @@ func _build_blender_props() -> void:
 			if inst != null:
 				inst.name = "Vending"
 				_apply_vending_glass(inst)
+				_add_collider(inst, Vector3(0.95, 1.95, 0.8), Vector3(0, 0.97, 0))
 				vend_left -= 1
 		if totem_left > 0 and rng.randf() < 0.26:
 			var sx: float = 1.0 if rng.randf() < 0.5 else -1.0
@@ -609,6 +658,7 @@ func _build_blender_props() -> void:
 			var inst2: Node3D = _place_model("res://assets/models/holo_totem.glb", root, pos2, atan2(off.x, off.z))
 			if inst2 != null:
 				inst2.name = "HoloTotem"
+				_add_collider(inst2, Vector3(0.9, 3.2, 0.55), Vector3(0, 1.6, 0))
 				totem_left -= 1
 	# Traffic lights at selected intersections (arm reaches over the road).
 	var spots: Array = [[-3, -3], [-3, 0], [-3, 3], [0, -3], [0, 3], [3, -3],
@@ -624,6 +674,7 @@ func _build_blender_props() -> void:
 		var inst3: Node3D = _place_model("res://assets/models/traffic_light.glb", root, pos3, atan2(dir3.x, dir3.z))
 		if inst3 != null:
 			inst3.name = "TrafficLight"
+			_add_collider(inst3, Vector3(0.34, 3.6, 0.34), Vector3(0, 1.8, 0))
 
 func _apply_vending_glass(node: Node) -> void:
 	# The glTF exporter drops the display glass's alpha (it arrives as an
@@ -670,6 +721,16 @@ func _process(delta: float) -> void:
 		_mat_beacon.emission_energy_multiplier = 1.4 + (sin(_t * 2.2) * 0.5 + 0.5) * 2.8
 
 # --- v2 facades: Blender ground-floor storefront kits + relief ---------
+
+func _add_collider(inst: Node3D, size: Vector3, offset: Vector3) -> void:
+	var body := StaticBody3D.new()
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	cs.shape = shape
+	cs.position = offset
+	body.add_child(cs)
+	inst.add_child(body)
 
 func _tint_sign(inst: Node, color: Color) -> void:
 	if inst is MeshInstance3D:
@@ -731,10 +792,12 @@ func _build_facade_kits() -> void:
 			inst.scale.x = krng.randf_range(1.05, 1.5)
 			inst.name = "FacadeKit"
 			holder.add_child(inst)
-			_tint_sign(inst, NEON_COLORS[krng.randi() % NEON_COLORS.size()])
+			_add_collider(inst, Vector3(10.3, 3.8, 1.9), Vector3(0, 1.9, 0.45))
+			_tint_sign(inst, _district_neon_color(c, krng))
 			placed += 1
 
 func _build_facade_relief() -> void:
+	_tank_xforms.clear()
 	var relief: Array[Transform3D] = []
 	var signs: Array[Transform3D] = []
 	var sign_cols: Array[Color] = []
@@ -787,7 +850,16 @@ func _build_facade_relief() -> void:
 					bp = Vector3(c.x - fp.x * 0.5 - 0.5, y3, c.z + rr.randf_range(-fp.y * 0.3, fp.y * 0.3))
 					bs = Vector3(0.95, 1.5, 0.14)
 			signs.append(Transform3D(Basis.from_scale(bs), bp))
-			sign_cols.append(NEON_COLORS[rr.randi() % NEON_COLORS.size()])
+			sign_cols.append(_district_neon_color(c, rr))
+		# Rooftop props: vent boxes near the roof edge, water tanks.
+		if rr.randf() < 0.5:
+			var bw: float = rr.randf_range(1.6, 3.2)
+			var bh: float = rr.randf_range(0.8, 1.5)
+			relief.append(Transform3D(Basis.from_scale(Vector3(bw, bh, bw)),
+				Vector3(c.x + fp.x * 0.36, h + 0.27 + bh * 0.5, c.z + fp.y * rr.randf_range(-0.25, 0.25))))
+		if rr.randf() < 0.3:
+			_tank_xforms.append(Transform3D(Basis.from_scale(Vector3.ONE),
+				Vector3(c.x - fp.x * 0.33, h + 0.27 + 1.3, c.z - fp.y * 0.3)))
 	var unit := BoxMesh.new()
 	unit.size = Vector3.ONE
 	var mm := MultiMesh.new()
@@ -818,3 +890,102 @@ func _build_facade_relief() -> void:
 	mmi2.multimesh = mm2
 	mmi2.material_override = smat
 	add_child(mmi2)
+	if not _tank_xforms.is_empty():
+		var tank_mesh := CylinderMesh.new()
+		tank_mesh.top_radius = 1.05
+		tank_mesh.bottom_radius = 1.05
+		tank_mesh.height = 2.6
+		var mm3 := MultiMesh.new()
+		mm3.transform_format = MultiMesh.TRANSFORM_3D
+		mm3.mesh = tank_mesh
+		mm3.instance_count = _tank_xforms.size()
+		for i in range(_tank_xforms.size()):
+			mm3.set_instance_transform(i, _tank_xforms[i])
+		var mmi3 := MultiMeshInstance3D.new()
+		mmi3.name = "RoofTanks"
+		mmi3.multimesh = mm3
+		mmi3.material_override = _mat_dark_metal
+		add_child(mmi3)
+
+# --- v2.1: elevated expressway, skybridges, horizon hills ---------------
+
+func _build_elevated() -> void:
+	var holder := Node3D.new()
+	holder.name = "Expressway"
+	add_child(holder)
+	var deck_y: float = 9.5
+	_box(holder, Vector3(11, 0.5, EXTENT * 2.0), Vector3(0, deck_y, 0), _mat_asphalt)
+	for sx in [-1.0, 1.0]:
+		_box(holder, Vector3(0.35, 0.75, EXTENT * 2.0), Vector3(sx * 5.4, deck_y + 0.55, 0), _mat_dark_metal)
+		_box(holder, Vector3(0.18, 0.12, EXTENT * 2.0), Vector3(sx * 5.4, deck_y + 1.0, 0), _neon_mats[1])
+	# Pillars on the avenue centre line: traffic lanes run at x = ±3.3,
+	# so a 1.4 m pillar at x = 0 stays clear of AI traffic.
+	for i in range(-10, 11):
+		var pz: float = float(i) * 31.5
+		_box(holder, Vector3(1.4, deck_y, 1.4), Vector3(0, deck_y * 0.5, pz), _mat_dark_metal, true)
+		_box(holder, Vector3(10.6, 0.7, 1.1), Vector3(0, deck_y - 0.6, pz), _mat_dark_metal)
+	# Underpass light strips so the avenue below reads as a lit underpass.
+	for z in range(-320, 321, 16):
+		_box(holder, Vector3(2.4, 0.08, 0.5), Vector3(0, deck_y - 0.32, float(z)), _mat_bulb)
+	# Skybridges between tall neighbours across a road.
+	skybridge_count = 0
+	var glass: Material = _mat(Color(0.09, 0.15, 0.23), 0.0, 0.3)
+	(glass as StandardMaterial3D).metallic = 0.45
+	var made: int = 0
+	for i in range(_buildings.size()):
+		if made >= 7:
+			break
+		var a: Dictionary = _buildings[i]
+		if float(a["height"]) < 30.0:
+			continue
+		for j in range(i + 1, _buildings.size()):
+			if made >= 7:
+				break
+			var b: Dictionary = _buildings[j]
+			if float(b["height"]) < 30.0:
+				continue
+			var ca: Vector3 = a["center"]
+			var cb: Vector3 = b["center"]
+			var dx: float = absf(ca.x - cb.x)
+			var dz: float = absf(ca.z - cb.z)
+			var along_x: bool = dx > 50.0 and dx < 70.0 and dz < 12.0
+			var along_z: bool = dz > 50.0 and dz < 70.0 and dx < 12.0
+			if not along_x and not along_z:
+				continue
+			var y: float = minf(float(a["height"]), float(b["height"])) * 0.55
+			var mid: Vector3 = (ca + cb) * 0.5
+			mid.y = y
+			var fa: Vector2 = a["fp"]
+			var fb: Vector2 = b["fp"]
+			if along_x:
+				var len_x: float = dx - (fa.x + fb.x) * 0.5 + 1.5
+				_box(holder, Vector3(len_x, 2.8, 2.6), mid, glass)
+				_box(holder, Vector3(len_x, 0.18, 2.9), mid + Vector3(0, 1.5, 0), _district_neon_mat(mid))
+			else:
+				var len_z: float = dz - (fa.y + fb.y) * 0.5 + 1.5
+				_box(holder, Vector3(2.6, 2.8, len_z), mid, glass)
+				_box(holder, Vector3(2.9, 0.18, len_z), mid + Vector3(0, 1.5, 0), _district_neon_mat(mid))
+			made += 1
+	skybridge_count = made
+
+func _build_hills() -> void:
+	var holder := Node3D.new()
+	holder.name = "Hills"
+	add_child(holder)
+	var hrng := RandomNumberGenerator.new()
+	hrng.seed = 5150
+	var hill_mat: Material = _mat(Color(0.02, 0.03, 0.07), 0.0, 1.0)
+	for i in range(18):
+		var ang: float = TAU * float(i) / 18.0 + hrng.randf_range(-0.08, 0.08)
+		var dist: float = hrng.randf_range(430.0, 560.0)
+		var hill := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 1.0
+		sm.height = 2.0
+		sm.radial_segments = 24
+		sm.rings = 12
+		hill.mesh = sm
+		hill.scale = Vector3(hrng.randf_range(70.0, 130.0), hrng.randf_range(16.0, 38.0), hrng.randf_range(70.0, 130.0))
+		hill.position = Vector3(cos(ang) * dist, -4.0, sin(ang) * dist)
+		hill.material_override = hill_mat
+		holder.add_child(hill)

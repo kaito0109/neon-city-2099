@@ -16,6 +16,7 @@ var _ap: AnimationPlayer
 var _standing: bool = false
 var _cull_t: float = 0.0
 var _rng := RandomNumberGenerator.new()
+var _player_ref: Node3D
 
 const STANDING_CLIPS: Array = ["Idle_Neutral", "Wave", "Clapping", "Standing", "Idle"]
 
@@ -70,6 +71,17 @@ func hit_by_car() -> void:
 	_body.position.y = 0.15
 
 func _process(delta: float) -> void:
+	# Soft separation: pedestrians shuffle aside instead of letting
+	# the player walk straight through them.
+	if not _down:
+		if _player_ref == null:
+			_player_ref = get_tree().get_first_node_in_group("player") as Node3D
+		if _player_ref != null:
+			var away: Vector3 = global_position - _player_ref.global_position
+			away.y = 0.0
+			var d2: float = away.length_squared()
+			if d2 < 0.42 and d2 > 0.0001:
+				global_position += away.normalized() * (0.65 - sqrt(d2)) * clampf(delta * 9.0, 0.0, 1.0)
 	# Distance-cull animation playback (not the walk logic).
 	_cull_t -= delta
 	if _cull_t <= 0.0 and _ap != null and not _down:

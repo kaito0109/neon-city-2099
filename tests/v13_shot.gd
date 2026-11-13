@@ -30,7 +30,7 @@ func _process(_delta: float) -> bool:
 		# Downtown: teleport near the centre for a crowd shot.
 		player.set("yaw", 0.0)
 		player.call("_apply_camera")
-		(player as Node3D).global_position = Vector3(2, 0.6, 58)
+		(player as Node3D).global_position = Vector3(8, 0.6, 95)
 		stage = 3
 	elif frames == 170 and stage == 3:
 		root.get_texture().get_image().save_png("res://shots/v13_c_downtown.png")

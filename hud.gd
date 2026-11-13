@@ -37,6 +37,8 @@ var rotate_label: Label
 
 var look_pointer_id: int = -2
 var look_dragging: bool = false
+var _look_last_pos: Vector2 = Vector2.ZERO
+var _look_accum: Vector2 = Vector2.ZERO
 var _center_t: float = 0.0
 var _toast_t: float = 0.0
 
@@ -229,6 +231,12 @@ func toast(text: String) -> void:
 func _process(delta: float) -> void:
 	if player == null:
 		return
+	# Apply batched touch-look once per frame (see _input): this keeps
+	# the camera steady even when drag events arrive in bursts.
+	if _look_accum != Vector2.ZERO:
+		if player.get("in_car") == null:
+			player.call("add_look_input", _look_accum)
+		_look_accum = Vector2.ZERO
 	if _center_t > 0.0:
 		_center_t -= delta
 		if _center_t <= 0.0:
@@ -272,12 +280,23 @@ func _input(event: InputEvent) -> void:
 		var st := event as InputEventScreenTouch
 		if st.pressed and look_pointer_id == -2 and _is_look_area(st.position):
 			look_pointer_id = st.index
+			_look_last_pos = st.position
+			_look_accum = Vector2.ZERO
 		elif not st.pressed and st.index == look_pointer_id:
 			look_pointer_id = -2
+			_look_accum = Vector2.ZERO
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
-		if sd.index == look_pointer_id and player != null and player.get("in_car") == null:
-			player.call("add_look_input", sd.relative)
+		if sd.index == look_pointer_id:
+			# Compute the delta from absolute positions ourselves:
+			# InputEventScreenDrag.relative gets noisy/spiky when two
+			# fingers drag at once (and can jump on the first event),
+			# which made the view wobble while running with the stick.
+			var delta: Vector2 = sd.position - _look_last_pos
+			_look_last_pos = sd.position
+			if delta.length() > 64.0:
+				delta = delta.normalized() * 64.0
+			_look_accum += delta
 	elif not DisplayServer.is_touchscreen_available() and event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:

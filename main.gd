@@ -27,6 +27,7 @@ var _drone_cd: Array[float] = [0, 0, 0, 0]
 var _escape_t: float = 0.0
 var _hit_cd: float = 0.0
 var _cars: Array = []
+var _deck_cars: Array = []
 var _npcs: Array = []
 
 # Mission state.
@@ -129,6 +130,22 @@ func _spawn_cars() -> void:
 		var blk: Dictionary = blocks[_rng.randi() % blocks.size()]
 		car2.call("set_traffic", blk["center"], float(blk["half"]))
 		_cars.append(car2)
+	# Expressway traffic: cars shuttle along the elevated deck (kept
+	# out of _cars so street-level interactions never see them).
+	for i in range(6):
+		var car3: CharacterBody3D = CarScript.new()
+		add_child(car3)
+		car3.call("build", colors[(i + 2) % colors.size()])
+		var lane: float = -2.8 if i % 2 == 0 else 2.8
+		var dir_z: float = 1.0 if i % 2 == 0 else -1.0
+		var z0: float = -dir_z * (40.0 + float(i) * 42.0)
+		car3.set("mode", "traffic")
+		car3.set("_base_y", 10.05)
+		car3.set("_loop", [Vector3(lane, 0, z0), Vector3(lane, 0, dir_z * 318.0), Vector3(lane, 0, -dir_z * 318.0)])
+		car3.global_position = Vector3(lane, 10.05, z0)
+		car3.set("_wp", 1)
+		car3.set("speed", 13.0 + float(i % 3) * 2.5)
+		_deck_cars.append(car3)
 
 func _pick_crowd_block(blocks: Array) -> Dictionary:
 	# Bias toward the city centre so downtown feels crowded.

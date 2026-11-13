@@ -219,3 +219,25 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
 - Tests: `v13_test.gd` (people, 12 items), `v14_test.gd` (facades,
   4 items); all suites pass in GLB and blob modes. Web pck is now
   ~19 MB (people data dominates) — first load is noticeably longer.
+
+## v2.1 (2026-11-13) — playtest fixes (collision / touch / variety / verticality)
+- **Collision pass**: facade kits, vending machines, holo totems and
+  traffic lights gained StaticBody boxes (`city._add_collider`);
+  pedestrians shuffle aside via soft separation in `npc.gd` instead of
+  being walked through.
+- **Touch look**: `hud.gd` now computes drag deltas from absolute
+  positions (per-pointer last position), clamps spikes and applies the
+  accumulated delta once per frame — `InputEventScreenDrag.relative`
+  got spiky when both thumbs were down, wobbling the camera.
+  Verified by `tests/v15_touch.gd` (synthetic multitouch under Xvfb).
+- **Building variety**: 10 window-texture styles (palettes, lit ratio,
+  window cell size), per-building material tint, setback crowns on
+  tall towers, annexes on big mid-rises, rooftop vent boxes + water
+  tanks, and district neon palettes (centre mixed / N cool / S warm /
+  E magenta / W teal) for trims, kit signs and blade signs.
+- **Verticality**: elevated expressway along the central avenue
+  (deck y=9.5, centre pillars — traffic lanes at x=±3.3 stay clear,
+  underpass light strips, 6 shuttle cars on deck), 7 glass skybridges
+  between tall neighbours, 18 silhouette hills on the horizon.
+- Tests: `v15_test.gd` (11 items) + `v15_touch.gd` (4 items); all
+  earlier suites still pass in GLB and blob modes.
