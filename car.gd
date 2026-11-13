@@ -232,6 +232,7 @@ func _physics_process(delta: float) -> void:
 		_body.rotation.z = sin(_bob_t * 1.7) * 0.008
 
 func _drive(delta: float) -> void:
+	_look_idle_t += delta
 	var main: Node = get_tree().get_first_node_in_group("main")
 	var throttle: float = 0.0
 	var steer: float = 0.0
@@ -268,7 +269,7 @@ func _drive(delta: float) -> void:
 		_takeoff_t = maxf(_takeoff_t - delta, 0.0)
 		if _takeoff_t > 0.0:
 			v_in = maxf(v_in, 0.65)
-		var f_target: float = throttle * (34.0 if throttle >= 0.0 else -11.0)
+		var f_target: float = throttle * (34.0 if throttle >= 0.0 else 17.0)
 		speed = move_toward(speed, f_target, delta * 15.0)
 		var turn: float = clampf(absf(speed) / 9.0, 0.45, 1.15) * (signf(speed) if absf(speed) > 0.5 else 1.0)
 		heading += steer * delta * turn
@@ -276,7 +277,7 @@ func _drive(delta: float) -> void:
 		fwd = Vector3(-sin(heading), 0, -cos(heading))
 		velocity.x = fwd.x * speed
 		velocity.z = fwd.z * speed
-		velocity.y = v_in * (11.5 if v_in >= 0.0 else 13.5)
+		velocity.y = v_in * (11.5 if v_in >= 0.0 else 15.5)
 		if global_position.y > 95.0 and velocity.y > 0.0:
 			velocity.y = 0.0
 		move_and_slide()
@@ -292,7 +293,7 @@ func _drive(delta: float) -> void:
 				main.call("on_car_landed")
 	else:
 		_body.rotation.x = lerpf(_body.rotation.x, 0.0, delta * 5.0)
-		var target: float = throttle * (MAX_SPEED if throttle >= 0.0 else -REV_SPEED)
+		var target: float = throttle * (MAX_SPEED if throttle >= 0.0 else -REV_SPEED)  # REV_SPEED is signed (-9)
 		var rate: float = ACCEL if signf(target) == signf(speed) or absf(speed) < 0.5 else ACCEL * 2.2
 		speed = move_toward(speed, target, rate * delta)
 		if absf(speed) > 0.2:
@@ -319,9 +320,24 @@ func _drive(delta: float) -> void:
 	_was_floor = is_on_floor()
 	# Camera pivot is a child of the car, whose root already rotates by
 	# heading — applying heading here too double-rotates the rig (at a
-	# 180-degree turn the camera ended up in FRONT of the car).
-	_cam_pivot.rotation = Vector3(-0.22, 0.0, 0.0)
+	# 180-degree turn the camera ended up in FRONT of the car). The
+	# look offsets let the driver orbit the view freely (v2.6); they
+	# ease back to centre shortly after the drag ends.
+	if _look_idle_t > 0.7:
+		var k: float = clampf(delta * 2.2, 0.0, 1.0)
+		look_yaw = lerpf(look_yaw, 0.0, k)
+		look_pitch = lerpf(look_pitch, 0.0, k)
+	_cam_pivot.rotation = Vector3(-0.22 + look_pitch, look_yaw, 0.0)
 	_camera.fov = 70.0 + clampf(absf(speed) / MAX_SPEED, 0.0, 1.0) * 10.0
+
+var look_yaw: float = 0.0
+var look_pitch: float = 0.0
+var _look_idle_t: float = 99.0
+
+func add_car_look(rel: Vector2) -> void:
+	look_yaw -= rel.x * 0.0042
+	look_pitch = clampf(look_pitch - rel.y * 0.0042, -1.15, 0.62)
+	_look_idle_t = 0.0
 
 func _traffic(delta: float) -> void:
 	if _loop.is_empty():

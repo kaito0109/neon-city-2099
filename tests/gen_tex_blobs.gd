@@ -8,6 +8,9 @@ const PAIRS: Array = [
 	["res://assets/textures/asphalt_rough.jpg", "res://assets/texture_data/asphalt_rough.tres"],
 	["res://assets/textures/concrete_normal.jpg", "res://assets/texture_data/concrete_normal.tres"],
 	["res://assets/textures/concrete_rough.jpg", "res://assets/texture_data/concrete_rough.tres"],
+	["res://assets/textures/facade_a.jpg", "res://assets/texture_data/facade_a.tres"],
+	["res://assets/textures/facade_b.jpg", "res://assets/texture_data/facade_b.tres"],
+	["res://assets/textures/facade_c.jpg", "res://assets/texture_data/facade_c.tres"],
 ]
 
 func _initialize() -> void:

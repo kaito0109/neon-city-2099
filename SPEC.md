@@ -343,3 +343,22 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   low props), then snaps to street height when it lands low.
 - Tests: v18 rewritten for the new controls (incl. landing ON the
   deck), v19 (tiles/props/materials) 5/5, all prior suites pass.
+
+## v2.6 (2026-11-13) — free-look car camera, reverse fix, photo towers
+- Flight reverse bug (iPhone report "can't go back"): the flight
+  thrust line computed throttle * -17 for BRK = full FORWARD. The
+  ground branch was correct all along (its REV_SPEED constant is
+  signed). Fixed; regression tests/v21 (ground -9, flight -17).
+  Found by the new Xvfb touch-path test (tests/v20_touch.gd) that
+  replays the phone order through the real joystick/HUD layers;
+  descend via stick-down also verified there (plus camera orbit).
+- Car camera free-look: driving/flying used a camera rigidly fixed
+  behind the car. Look drags (touch + desktop mouse) now orbit the
+  car rig (car.add_car_look, yaw/pitch offsets that ease back to
+  centre after the drag ends).
+- Roads: asphalt colour map desaturated and darkened (~x0.42) with
+  a neutral tint — the saturated blue carpet is gone.
+- Buildings: 61 towers now use photographic night facades
+  (ambientCG Facade 008 / 010 / 018B, CC0, night-baked with a
+  highlight soft-clip so lit windows don't blow out) as stacked
+  ~13 m segments; the rest keep the procedural neon windows.

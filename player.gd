@@ -105,6 +105,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not input_enabled or dead:
 		return
 	if in_car != null:
+		# Desktop mouse look orbits the car camera while driving.
+		if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			var mm2 := event as InputEventMouseMotion
+			in_car.call("add_car_look", mm2.relative / 0.0042 * 0.0026)
 		# Driving keys: F exits (even mid-air — you fall), R toggles flight.
 		if event is InputEventKey and event.pressed and not event.echo:
 			var kk := event as InputEventKey

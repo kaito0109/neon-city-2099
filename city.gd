@@ -24,6 +24,8 @@ var _font: Font
 var _mat_asphalt: StandardMaterial3D
 var _mat_asphalt_pbr: StandardMaterial3D
 var road_tile_count: int = 0
+var _photo_mats: Array = []
+var photo_building_count: int = 0
 var _mat_sidewalk: StandardMaterial3D
 var _mat_ground: StandardMaterial3D
 var _window_mats: Array = []
@@ -160,7 +162,7 @@ func _make_materials() -> void:
 	if ac != null:
 		_mat_asphalt_pbr = StandardMaterial3D.new()
 		_mat_asphalt_pbr.albedo_texture = ac
-		_mat_asphalt_pbr.albedo_color = Color(0.82, 0.82, 0.88)
+		_mat_asphalt_pbr.albedo_color = Color(0.62, 0.62, 0.64)
 		_mat_asphalt_pbr.vertex_color_use_as_albedo = true
 		_mat_asphalt_pbr.metallic = 0.0
 		_mat_asphalt_pbr.roughness = 1.0
@@ -211,6 +213,17 @@ func _make_materials() -> void:
 		bm.albedo_texture = _billboard_texture(k)
 		bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_billboard_mats.append(bm)
+	# v2.6 photo facades (ambientCG Facade 008/010/018B, CC0, night
+	# baked): unshaded like the window towers, but photographic —
+	# real lit offices with interiors instead of flat window grids.
+	for fa in ["a", "b", "c"]:
+		var ft: Texture2D = TextureLoader.load_tex("res://assets/textures/facade_" + fa + ".jpg", "res://assets/texture_data/facade_" + fa + ".tres")
+		if ft != null:
+			var fm := StandardMaterial3D.new()
+			fm.albedo_texture = ft
+			fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			fm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+			_photo_mats.append(fm)
 
 func _disc(img: Image, cx: int, cy: int, r: int, col: Color) -> void:
 	for yy in range(-r, r + 1):
@@ -558,7 +571,21 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	var wm: StandardMaterial3D = (_window_mats[_rng.randi() % _window_mats.size()] as StandardMaterial3D).duplicate() as StandardMaterial3D
 	var bright: float = _rng.randf_range(0.72, 1.12)
 	wm.albedo_color = Color(bright * _rng.randf_range(0.9, 1.06), bright, bright * _rng.randf_range(0.9, 1.1))
-	_box(self, Vector3(fp.x, height, fp.y), Vector3(center.x, height * 0.5 + 0.27, center.z), wm, true)
+	# Photo-facade towers: stacked ~13 m segments of real night
+	# facade (one full-height collider hidden inside the shells).
+	var photo: bool = not _photo_mats.is_empty() and height >= 19.0 and fp.x <= 31.0 and fp.y <= 31.0 and _rng.randf() < 0.42
+	if photo:
+		photo_building_count += 1
+		var pm: Material = _photo_mats[_rng.randi() % _photo_mats.size()]
+		var segs: int = int(ceil(height / 13.0))
+		var seg_h: float = height / float(segs)
+		for s in range(segs):
+			var seg: MeshInstance3D = _box(self, Vector3(fp.x, seg_h, fp.y), Vector3(center.x, 0.27 + seg_h * (float(s) + 0.5), center.z), pm)
+			if s % 2 == 1:
+				seg.rotation.y = PI
+		_box(self, Vector3(fp.x - 0.04, height, fp.y - 0.04), Vector3(center.x, height * 0.5 + 0.27, center.z), _mat_dark_metal, true)
+	else:
+		_box(self, Vector3(fp.x, height, fp.y), Vector3(center.x, height * 0.5 + 0.27, center.z), wm, true)
 	# Roof finish (district-biased colour): dark cap + thin neon
 	# cornice frame. (Was a solid emissive slab — rooftops blew out
 	# white and swallowed the player's feet; matters now that roofs
@@ -566,7 +593,9 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	var neon: Material = _district_neon_mat(center)
 	_roof_finish(center.x, center.z, fp, height + 0.27, neon)
 	# Silhouette variety: setback crown on tall towers, annex on big mid-rises.
-	if height > 34.0:
+	if photo:
+		pass
+	elif height > 34.0:
 		var h2: float = height * _rng.randf_range(0.22, 0.4)
 		var fp2: Vector2 = fp * _rng.randf_range(0.55, 0.72)
 		_box(self, Vector3(fp2.x, h2, fp2.y), Vector3(center.x, height + 0.27 + h2 * 0.5, center.z), wm, true)

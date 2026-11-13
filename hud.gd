@@ -238,8 +238,7 @@ func _process(delta: float) -> void:
 	# Apply batched touch-look once per frame (see _input): this keeps
 	# the camera steady even when drag events arrive in bursts.
 	if _look_accum != Vector2.ZERO:
-		if player.get("in_car") == null:
-			player.call("add_look_input", _look_accum)
+		_apply_look(_look_accum)
 		_look_accum = Vector2.ZERO
 	if _center_t > 0.0:
 		_center_t -= delta
@@ -320,8 +319,19 @@ func _input(event: InputEvent) -> void:
 				look_dragging = false
 	elif not DisplayServer.is_touchscreen_available() and event is InputEventMouseMotion and look_pointer_id == -1 and look_dragging:
 		var mm := event as InputEventMouseMotion
-		if player != null and player.get("in_car") == null:
-			player.call("add_look_input", mm.relative)
+		if player != null:
+			_apply_look(mm.relative)
+
+func _apply_look(rel: Vector2) -> void:
+	# While driving/flying the look orbits the car's own camera rig;
+	# on foot it turns the player's camera.
+	if player == null:
+		return
+	var car: Object = player.get("in_car")
+	if car != null:
+		car.call("add_car_look", rel)
+	else:
+		player.call("add_look_input", rel)
 
 func _is_look_area(pos: Vector2) -> bool:
 	if panel.visible:
