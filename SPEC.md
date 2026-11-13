@@ -259,3 +259,55 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   (TURBO, データ堂, HOTEL-9, …). Puddles 110→200 and larger.
 - Storefront kits gained same-colour additive reflection pools;
   two rotating searchlight beams on the tallest towers.
+
+## v2.4 (2026-11-13) — flight + parkour
+かいと の要望「空を飛びたい。空飛ぶ車で飛ぶとか、そこから人が降りたら
+落ちるモーションやジャンプ、壁を登るパルクール」への対応。
+- **飛行**: 車で Rキー / FLYボタン（運転中はJUMPボタンがFLY/LAND表示に
+  切替）で飛行モード。自動で前進（巡航 21 m/s）、W/GAS・Spaceで上昇
+  11.5 m/s、S/BRK・Shiftで下降 13.5 m/s、旋回でバンク、ピッチで傾く。
+  上限 95 m。着地すると自動で飛行解除＋「着陸」トースト。
+- **空中降車と落下**: 飛行中にF/ACTで降りるとプレイヤーはそのまま落下
+  （落下ポーズ＋脚のサイクル）。落下速度ピークが 16 m/s を超えると
+  落下ダメージ（最大55、HPに反映）、13 m/s 超で着地ロール。
+  置き去りの車も重力で落下して着地する（屋根の上に落ちた判定あり）。
+- **二段ジャンプ**: 空中で1回だけ追加ジャンプ（vy 6.8）、
+  その間モデルが1回転するフリップ演出つき。
+- **パルクール（壁登り）**: 壁に向かってジャンプすると胸の高さの
+  レイ（0.85 m、StaticBodyのみ）で壁をつかんで登攀（3.4 m/s）。
+  落下中に壁へ押し込みながら落ちても自動でつかむ。登攀中にジャンプで
+  ウォールジャンプ（壁の法線方向へ 5.6＋上 7.6）。頭上のレイが抜けたら
+  屋根へマントル（上に跳ねて屋根に立つ）。壁から離れる方向へ押すと降りる。
+- **HUD・説明**: スタート画面の操作説明に飛行とパルクールを追加。
+  乗車・飛行切替・着陸・落下ダメージはトーストで通知。
+- 検証: `tests/v17_test.gd` 13項目全合格（飛行上昇、空中降車→落下→
+  ダメージ、置き去り車の落下、二段ジャンプ、壁登り、ウォールジャンプ、
+  屋根へのマントル）。テスト側の修正1件：二段ジャンプの1回目を
+  テレポート直後（着地判定前）に打つと空中ジャンプとして消費されて
+  失敗したため、30フレーム後に遅らせた。既存スイートも全合格
+  （v11 14 / v111 11 / v12 13 / v13 12 / v14 4 / v15 11 / v16 4）。
+  v15_touch は headless では失敗するが Xvfb では 4/4 合格
+  （headless ではタッチ入力が届かないハーネスの制約で、回帰ではない）。
+- スクショ: `shots/v17_a_flight.png`（屋根の上を飛ぶ車）、
+  `shots/v17_b_fall.png`（空中降車後の落下）、
+  `shots/v17_c_roof.png`（マントル後の屋根上、落下ダメージでHP 45%）。
+  Web書き出しOK（pck 20,072,220 bytes）。公開pushは未実施
+  （承認カードが必要なため、かいと の「pushして」待ち）。
+
+## v2.4 (2026-11-13) — flight & parkour
+- Flying cars: FLY button / R toggles flight in any driven car.
+  Auto-cruise ~21 m/s, GAS/W (or Space) climbs, BRK/S (or Shift)
+  sinks, steering banks the hull; ceiling 95 m. Descending onto a
+  street or a roof lands and resumes driving (roofs are drivable).
+  Toggling off mid-air or bailing out drops the car with gravity —
+  it crash-lands and stays usable. Desktop F now also exits a car.
+- Player air kit: double jump (with a front flip), falling pose
+  (lean-back + slow leg cycle; the CC0 pack has no fall clip),
+  landing roll on hard impacts, fall damage above ~16 m/s impact
+  (capped at 55).
+- Parkour: jump toward a wall (or fall past one while pushing in)
+  to wall-climb at 3.4 m/s; jump while climbing for a wall jump;
+  reaching the top mantles onto the roof. Buildings/kits only.
+- Roof finish rework: the old solid emissive "trim" slab blew out
+  white and hid players' feet; now a dark cap + thin neon cornice
+  frame, so rooftops read as rooftops from the air and on foot.

@@ -4,6 +4,9 @@ extends CharacterBody3D
 var mode: String = "parked"  # parked | driven | traffic
 var heading: float = 0.0
 var speed: float = 0.0
+var flying: bool = false
+var _roof_landed: bool = false
+var _was_floor: bool = true
 var body_color: Color = Color(0.7, 0.1, 0.3)
 var _bob_t: float = 0.0
 var _body: Node3D
@@ -149,8 +152,17 @@ func _add_box(size: Vector3, pos: Vector3, mat: Material) -> void:
 	mi.material_override = mat
 	_body.add_child(mi)
 
+func toggle_flight() -> bool:
+	if mode != "driven":
+		return flying
+	flying = not flying
+	if flying:
+		_roof_landed = false
+	return flying
+
 func set_driven(on: bool) -> void:
 	mode = "driven" if on else "parked"
+	flying = false
 	speed = 0.0
 	_headlight.light_energy = 2.2 if on else 0.0
 	if _cone != null:
@@ -181,9 +193,22 @@ func _physics_process(delta: float) -> void:
 		_traffic(delta)
 	else:
 		speed = move_toward(speed, 0.0, delta * 10.0)
-		velocity = Vector3.ZERO
+		# A car left parked in mid-air (driver bailed out while flying)
+		# falls and crash-lands instead of hanging in the sky.
+		if global_position.y > _base_y + 1.5 and not is_on_floor():
+			velocity.x = 0.0
+			velocity.z = 0.0
+			velocity.y = maxf(velocity.y - 22.0 * delta, -30.0)
+			move_and_slide()
+			if is_on_floor():
+				velocity = Vector3.ZERO
+				_roof_landed = global_position.y > _base_y + 2.0
+		else:
+			velocity = Vector3.ZERO
 	_body.position.y = sin(_bob_t * 2.1) * 0.05
-	_body.rotation.z = sin(_bob_t * 1.7) * 0.008
+	if not (mode == "driven" and flying):
+		# In flight the drive code owns the bank angle instead.
+		_body.rotation.z = sin(_bob_t * 1.7) * 0.008
 
 func _drive(delta: float) -> void:
 	var main: Node = get_tree().get_first_node_in_group("main")
@@ -203,20 +228,61 @@ func _drive(delta: float) -> void:
 		steer += -td.x
 	throttle = clampf(throttle, -1.0, 1.0)
 	steer = clampf(steer, -1.0, 1.0)
-	var target: float = throttle * (MAX_SPEED if throttle >= 0.0 else -REV_SPEED)
-	var rate: float = ACCEL if signf(target) == signf(speed) or absf(speed) < 0.5 else ACCEL * 2.2
-	speed = move_toward(speed, target, rate * delta)
-	if absf(speed) > 0.2:
-		heading += steer * delta * clampf(absf(speed) / 9.0, 0.25, 1.15) * signf(speed) * 1.05
-	rotation.y = heading
 	var fwd := Vector3(-sin(heading), 0, -cos(heading))
-	velocity.x = fwd.x * speed
-	velocity.z = fwd.z * speed
-	velocity.y = -2.0
-	global_position.y = move_toward(global_position.y, _base_y, delta * 3.0)
-	move_and_slide()
-	if get_slide_collision_count() > 0 and absf(speed) > 6.0:
-		speed *= 0.55
+	if flying:
+		# Flight: auto-cruise forward; throttle becomes climb/sink
+		# (W/GAS up, S/BRK down, Space up, Shift down).
+		var v_in: float = throttle
+		if Input.is_key_pressed(KEY_SPACE):
+			v_in += 1.0
+		if Input.is_key_pressed(KEY_SHIFT):
+			v_in -= 1.0
+		v_in = clampf(v_in, -1.0, 1.0)
+		speed = move_toward(speed, 21.0, delta * 9.0)
+		heading += steer * delta * 0.85
+		rotation.y = heading
+		fwd = Vector3(-sin(heading), 0, -cos(heading))
+		velocity.x = fwd.x * speed
+		velocity.z = fwd.z * speed
+		velocity.y = v_in * (11.5 if v_in >= 0.0 else 13.5)
+		if global_position.y > 95.0 and velocity.y > 0.0:
+			velocity.y = 0.0
+		move_and_slide()
+		_body.rotation.x = lerpf(_body.rotation.x, clampf(-v_in * 0.16, -0.18, 0.18), delta * 5.0)
+		_body.rotation.z = lerpf(_body.rotation.z, clampf(steer * 0.3, -0.3, 0.3), delta * 5.0)
+		if is_on_floor() and v_in <= 0.0:
+			flying = false
+			_roof_landed = global_position.y > _base_y + 2.0
+			speed = minf(speed, 8.0)
+			if main != null:
+				main.call("on_car_landed")
+	else:
+		_body.rotation.x = lerpf(_body.rotation.x, 0.0, delta * 5.0)
+		var target: float = throttle * (MAX_SPEED if throttle >= 0.0 else -REV_SPEED)
+		var rate: float = ACCEL if signf(target) == signf(speed) or absf(speed) < 0.5 else ACCEL * 2.2
+		speed = move_toward(speed, target, rate * delta)
+		if absf(speed) > 0.2:
+			heading += steer * delta * clampf(absf(speed) / 9.0, 0.25, 1.15) * signf(speed) * 1.05
+		rotation.y = heading
+		fwd = Vector3(-sin(heading), 0, -cos(heading))
+		velocity.x = fwd.x * speed
+		velocity.z = fwd.z * speed
+		if is_on_floor():
+			velocity.y = -2.0
+			if not _roof_landed:
+				global_position.y = move_toward(global_position.y, _base_y, delta * 3.0)
+		elif global_position.y > _base_y + 1.5:
+			# Airborne without flight (bailed landing, drove off a roof):
+			# real gravity until touchdown.
+			velocity.y = maxf(velocity.y - 22.0 * delta, -30.0)
+		else:
+			velocity.y = -2.0
+		move_and_slide()
+		if is_on_floor() and not _was_floor:
+			_roof_landed = global_position.y > _base_y + 2.0
+		if get_slide_collision_count() > 0 and absf(speed) > 6.0:
+			speed *= 0.55
+	_was_floor = is_on_floor()
 	# Camera pivot is a child of the car, whose root already rotates by
 	# heading — applying heading here too double-rotates the rig (at a
 	# 180-degree turn the camera ended up in FRONT of the car).

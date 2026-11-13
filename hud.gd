@@ -121,7 +121,11 @@ func build(font: Font) -> void:
 	_mk_touch_button("BRK", "BRK")
 	_mk_touch_button("MAP", "MAP")
 	touch_buttons["ACT"].pressed.connect(func() -> void: main.call("interact"))
-	touch_buttons["JUMP"].button_down.connect(func() -> void: player.call("queue_jump"))
+	touch_buttons["JUMP"].button_down.connect(func() -> void:
+		if player.get("in_car") != null:
+			main.call("toggle_flight")
+		else:
+			player.call("queue_jump"))
 	touch_buttons["DASH"].button_down.connect(func() -> void: player.set("touch_dashing", true))
 	touch_buttons["DASH"].button_up.connect(func() -> void: player.set("touch_dashing", false))
 	touch_buttons["GAS"].button_down.connect(func() -> void: _gas = true)
@@ -256,7 +260,13 @@ func _process(delta: float) -> void:
 		var driving: bool = player.get("in_car") != null
 		touch_buttons["GAS"].visible = driving
 		touch_buttons["BRK"].visible = driving
-		touch_buttons["JUMP"].visible = not driving
+		# The JUMP slot doubles as the FLY toggle while driving.
+		touch_buttons["JUMP"].visible = true
+		if driving:
+			var car: Node = player.get("in_car")
+			touch_buttons["JUMP"].text = "LAND" if bool(car.get("flying")) else "FLY"
+		else:
+			touch_buttons["JUMP"].text = "JUMP"
 		touch_buttons["DASH"].visible = not driving
 		# ACT shares its spot with GAS; while driving, move ACT to the
 		# (hidden) DASH slot so the exit button stays tappable.

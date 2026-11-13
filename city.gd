@@ -27,6 +27,7 @@ var _mat_ground: StandardMaterial3D
 var _window_mats: Array = []
 var _neon_mats: Array = []
 var _mat_dark_metal: StandardMaterial3D
+var _mat_roof: StandardMaterial3D
 var _mat_beacon: StandardMaterial3D
 var _mat_edge_line: StandardMaterial3D
 var _mat_crosswalk: StandardMaterial3D
@@ -126,6 +127,7 @@ func _make_materials() -> void:
 	_mat_sidewalk.albedo_texture = _noise_texture(Color(0.155, 0.155, 0.215))
 	_mat_ground = _mat(Color(0.03, 0.03, 0.062), 0.0, 1.0)
 	_mat_dark_metal = _mat(Color(0.05, 0.05, 0.08), 0.0, 0.5)
+	_mat_roof = _mat(Color(0.045, 0.05, 0.085), 0.0, 0.95)
 	_glow_tex = _glow_texture()
 	# Aviation beacons (shared material, blinked in _process).
 	_mat_beacon = _mat(Color(1.0, 0.12, 0.2), 2.4, 0.4)
@@ -488,6 +490,17 @@ func _build_blocks() -> void:
 			if (bx * 7 + bz) % 4 == 0:
 				poi_pickups.append(Vector3(cx - inner * 0.15, 0.27, cz + inner * 0.33))
 
+func _roof_finish(cx: float, cz: float, fp: Vector2, top_y: float, neon: Material) -> void:
+	# Dark cap flush with the walkable roof surface.
+	_box(self, Vector3(fp.x + 0.2, 0.12, fp.y + 0.2), Vector3(cx, top_y - 0.04, cz), _mat_roof)
+	# Thin neon cornice frame around the edge.
+	var t: float = 0.4
+	var y: float = top_y + 0.05
+	_box(self, Vector3(fp.x + 0.55, 0.16, t), Vector3(cx, y, cz - fp.y * 0.5 - 0.05), neon)
+	_box(self, Vector3(fp.x + 0.55, 0.16, t), Vector3(cx, y, cz + fp.y * 0.5 + 0.05), neon)
+	_box(self, Vector3(t, 0.16, fp.y + 0.55), Vector3(cx - fp.x * 0.5 - 0.05, y, cz), neon)
+	_box(self, Vector3(t, 0.16, fp.y + 0.55), Vector3(cx + fp.x * 0.5 + 0.05, y, cz), neon)
+
 func _add_building(center: Vector3, fp: Vector2) -> void:
 	var height: float = _rng.randf_range(13.0, 46.0)
 	if _rng.randf() < 0.12:
@@ -498,15 +511,18 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	var bright: float = _rng.randf_range(0.72, 1.12)
 	wm.albedo_color = Color(bright * _rng.randf_range(0.9, 1.06), bright, bright * _rng.randf_range(0.9, 1.1))
 	_box(self, Vector3(fp.x, height, fp.y), Vector3(center.x, height * 0.5 + 0.27, center.z), wm, true)
-	# Neon roof trim (district-biased colour).
+	# Roof finish (district-biased colour): dark cap + thin neon
+	# cornice frame. (Was a solid emissive slab — rooftops blew out
+	# white and swallowed the player's feet; matters now that roofs
+	# are gameplay space.)
 	var neon: Material = _district_neon_mat(center)
-	_box(self, Vector3(fp.x + 0.5, 0.5, fp.y + 0.5), Vector3(center.x, height + 0.35, center.z), neon)
+	_roof_finish(center.x, center.z, fp, height + 0.27, neon)
 	# Silhouette variety: setback crown on tall towers, annex on big mid-rises.
 	if height > 34.0:
 		var h2: float = height * _rng.randf_range(0.22, 0.4)
 		var fp2: Vector2 = fp * _rng.randf_range(0.55, 0.72)
 		_box(self, Vector3(fp2.x, h2, fp2.y), Vector3(center.x, height + 0.27 + h2 * 0.5, center.z), wm, true)
-		_box(self, Vector3(fp2.x + 0.5, 0.4, fp2.y + 0.5), Vector3(center.x, height + 0.27 + h2 + 0.2, center.z), neon)
+		_roof_finish(center.x, center.z, fp2, height + 0.27 + h2, neon)
 		_buildings.append({"center": center, "fp": fp2, "height": height + h2})
 	elif height > 17.0 and fp.x > 30.0 and _rng.randf() < 0.35:
 		var ah: float = _rng.randf_range(4.5, 8.5)
