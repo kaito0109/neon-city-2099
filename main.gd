@@ -130,16 +130,33 @@ func _spawn_cars() -> void:
 		car2.call("set_traffic", blk["center"], float(blk["half"]))
 		_cars.append(car2)
 
+func _pick_crowd_block(blocks: Array) -> Dictionary:
+	# Bias toward the city centre so downtown feels crowded.
+	for attempt in range(4):
+		var blk: Dictionary = blocks[_rng.randi() % blocks.size()]
+		var c: Vector3 = blk["center"]
+		var d: float = Vector2(c.x, c.z).length()
+		if _rng.randf() < clampf(1.3 - d / 330.0, 0.15, 1.0):
+			return blk
+	return blocks[_rng.randi() % blocks.size()]
+
 func _spawn_npcs() -> void:
 	var blocks: Array = city.get("sidewalk_blocks")
-	for i in range(24):
+	var cast: Array = People.PEDESTRIANS
+	for i in range(80):
 		var npc: Node3D = NpcScript.new()
 		npc.add_to_group("npcs")
 		add_child(npc)
-		var blk: Dictionary = blocks[_rng.randi() % blocks.size()]
-		var col := Color().from_hsv(_rng.randf(), 0.65, 0.75)
-		npc.call("setup", blk["center"], float(blk["half"]), col, _rng)
+		var blk: Dictionary = _pick_crowd_block(blocks)
+		npc.call("setup", blk["center"], float(blk["half"]), cast[i % cast.size()], _rng, false)
 		_npcs.append(npc)
+	for i in range(40):
+		var npc2: Node3D = NpcScript.new()
+		npc2.add_to_group("npcs")
+		add_child(npc2)
+		var blk2: Dictionary = _pick_crowd_block(blocks)
+		npc2.call("setup", blk2["center"], float(blk2["half"]), cast[(i + 3) % cast.size()], _rng, true)
+		_npcs.append(npc2)
 
 func _spawn_drones() -> void:
 	for i in range(4):

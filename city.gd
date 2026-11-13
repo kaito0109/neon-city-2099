@@ -11,6 +11,7 @@ var poi_kiosks: Array[Vector3] = []
 var poi_terminals: Array[Vector3] = []
 var poi_pickups: Array[Vector3] = []
 var sidewalk_blocks: Array = []  # {center: Vector3, half: float}
+var _buildings: Array = []  # {center, fp, height} for facade relief
 var holo: Node3D
 var _rng := RandomNumberGenerator.new()
 var _font: Font
@@ -86,6 +87,7 @@ func _glow_texture() -> ImageTexture:
 func _make_materials() -> void:
 	_mat_asphalt = _mat(Color(0.05, 0.05, 0.085), 0.0, 0.34)
 	_mat_sidewalk = _mat(Color(0.12, 0.12, 0.17), 0.0, 0.9)
+	_mat_sidewalk.albedo_texture = _noise_texture(Color(0.12, 0.12, 0.17))
 	_mat_ground = _mat(Color(0.012, 0.012, 0.03), 0.0, 1.0)
 	_mat_dark_metal = _mat(Color(0.05, 0.05, 0.08), 0.0, 0.5)
 	_glow_tex = _glow_texture()
@@ -121,6 +123,28 @@ func _make_materials() -> void:
 	for c in NEON_COLORS:
 		_neon_mats.append(_mat(c, 2.6, 0.4))
 
+func _noise_texture(base: Color, size: int = 256) -> ImageTexture:
+	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+	var nrng := RandomNumberGenerator.new()
+	nrng.seed = 99
+	for y in range(size):
+		for x in range(size):
+			var v: float = nrng.randf_range(-0.05, 0.05)
+			img.set_pixel(x, y, Color(
+				clampf(base.r + v, 0.0, 1.0),
+				clampf(base.g + v, 0.0, 1.0),
+				clampf(base.b + v, 0.0, 1.0)))
+	for i in range(60):
+		var bx: int = nrng.randi() % size
+		var by: int = nrng.randi() % size
+		var w: int = nrng.randi_range(5, 22)
+		var dark: float = nrng.randf_range(0.55, 0.85)
+		for yy in range(by, mini(by + w, size)):
+			for xx in range(bx, mini(bx + w, size)):
+				var p: Color = img.get_pixel(xx, yy)
+				img.set_pixel(xx, yy, Color(p.r * dark, p.g * dark, p.b * dark))
+	return ImageTexture.create_from_image(img)
+
 func _box(parent: Node, size: Vector3, pos: Vector3, mat: Material, collide: bool = false) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
@@ -153,6 +177,8 @@ func build(font: Font) -> void:
 	_build_sky()
 	_build_blender_props()
 	_build_hero_towers()
+	_build_facade_kits()
+	_build_facade_relief()
 
 func _build_ground_and_roads() -> void:
 	# Base ground slab + physics.
@@ -334,6 +360,7 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	var height: float = _rng.randf_range(13.0, 46.0)
 	if _rng.randf() < 0.12:
 		height = _rng.randf_range(48.0, 72.0)
+	_buildings.append({"center": center, "fp": fp, "height": height})
 	var wm: StandardMaterial3D = _window_mats[_rng.randi() % _window_mats.size()]
 	_box(self, Vector3(fp.x, height, fp.y), Vector3(center.x, height * 0.5 + 0.27, center.z), wm, true)
 	# Neon roof trim.
@@ -641,3 +668,153 @@ func _process(delta: float) -> void:
 		holo.rotation.y += delta * 0.25
 	if _mat_beacon != null:
 		_mat_beacon.emission_energy_multiplier = 1.4 + (sin(_t * 2.2) * 0.5 + 0.5) * 2.8
+
+# --- v2 facades: Blender ground-floor storefront kits + relief ---------
+
+func _tint_sign(inst: Node, color: Color) -> void:
+	if inst is MeshInstance3D:
+		var mi := inst as MeshInstance3D
+		if mi.mesh != null:
+			for i in range(mi.mesh.get_surface_count()):
+				var base: Material = mi.mesh.surface_get_material(i)
+				if base != null and base.resource_name == "SignPanel":
+					var nm := StandardMaterial3D.new()
+					nm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+					nm.albedo_color = color
+					nm.resource_name = "SignPanel"
+					mi.set_surface_override_material(i, nm)
+	for c in inst.get_children():
+		_tint_sign(c, color)
+
+func _build_facade_kits() -> void:
+	var holder := Node3D.new()
+	holder.name = "FacadeKits"
+	add_child(holder)
+	var krng := RandomNumberGenerator.new()
+	krng.seed = 777
+	var placed: int = 0
+	for blk in sidewalk_blocks:
+		if placed >= 130:
+			break
+		var c: Vector3 = blk["center"]
+		var d: float = Vector2(c.x, c.z).length()
+		var sides: int = 1
+		if d < 140.0:
+			sides = krng.randi_range(3, 4)
+		elif d < 240.0:
+			sides = krng.randi_range(2, 3)
+		else:
+			sides = krng.randi_range(0, 2)
+		var order: Array = [0, 1, 2, 3]
+		order.shuffle()
+		for si in range(mini(sides, 4)):
+			if placed >= 130:
+				break
+			var inst: Node3D = ModelLoader.load_model("res://assets/models/facade_kit.glb")
+			if inst == null:
+				continue
+			var jit: float = krng.randf_range(-7.0, 7.0)
+			var off: float = 20.9
+			match order[si]:
+				0:
+					inst.position = Vector3(c.x + jit, 0.27, c.z + off)
+					inst.rotation.y = 0.0
+				1:
+					inst.position = Vector3(c.x + jit, 0.27, c.z - off)
+					inst.rotation.y = PI
+				2:
+					inst.position = Vector3(c.x + off, 0.27, c.z + jit)
+					inst.rotation.y = PI * 0.5
+				3:
+					inst.position = Vector3(c.x - off, 0.27, c.z + jit)
+					inst.rotation.y = -PI * 0.5
+			inst.scale.x = krng.randf_range(1.05, 1.5)
+			inst.name = "FacadeKit"
+			holder.add_child(inst)
+			_tint_sign(inst, NEON_COLORS[krng.randi() % NEON_COLORS.size()])
+			placed += 1
+
+func _build_facade_relief() -> void:
+	var relief: Array[Transform3D] = []
+	var signs: Array[Transform3D] = []
+	var sign_cols: Array[Color] = []
+	var rr := RandomNumberGenerator.new()
+	rr.seed = 4243
+	for b in _buildings:
+		var c: Vector3 = b["center"]
+		var fp: Vector2 = b["fp"]
+		var h: float = b["height"]
+		for i in range(rr.randi_range(1, 2)):
+			var y: float = h * rr.randf_range(0.3, 0.75) + 0.27
+			relief.append(Transform3D(Basis.from_scale(Vector3(fp.x + 0.7, 0.32, fp.y + 0.7)), Vector3(c.x, y, c.z)))
+		for i in range(rr.randi_range(0, 3)):
+			var side: int = rr.randi() % 4
+			var y2: float = rr.randf_range(3.0, maxf(3.5, h - 2.0)) + 0.27
+			var p := Vector3.ZERO
+			var s := Vector3(0.95, 0.7, 0.55)
+			match side:
+				0:
+					p = Vector3(c.x + rr.randf_range(-fp.x * 0.35, fp.x * 0.35), y2, c.z + fp.y * 0.5 + 0.28)
+				1:
+					p = Vector3(c.x + rr.randf_range(-fp.x * 0.35, fp.x * 0.35), y2, c.z - fp.y * 0.5 - 0.28)
+				2:
+					p = Vector3(c.x + fp.x * 0.5 + 0.28, y2, c.z + rr.randf_range(-fp.y * 0.35, fp.y * 0.35))
+					s = Vector3(0.55, 0.7, 0.95)
+				3:
+					p = Vector3(c.x - fp.x * 0.5 - 0.28, y2, c.z + rr.randf_range(-fp.y * 0.35, fp.y * 0.35))
+					s = Vector3(0.55, 0.7, 0.95)
+			relief.append(Transform3D(Basis.from_scale(s), p))
+		if rr.randf() < 0.6:
+			var px: float = c.x + (fp.x * 0.5 + 0.12) * (1.0 if rr.randf() < 0.5 else -1.0)
+			var pz: float = c.z + (fp.y * 0.5 + 0.12) * (1.0 if rr.randf() < 0.5 else -1.0)
+			relief.append(Transform3D(Basis.from_scale(Vector3(0.16, h * 0.85, 0.16)), Vector3(px, h * 0.425 + 0.27, pz)))
+		if rr.randf() < 0.55:
+			var side2: int = rr.randi() % 4
+			var y3: float = rr.randf_range(3.4, 5.2)
+			var bp := Vector3.ZERO
+			var bs := Vector3.ONE
+			match side2:
+				0:
+					bp = Vector3(c.x + rr.randf_range(-fp.x * 0.3, fp.x * 0.3), y3, c.z + fp.y * 0.5 + 0.5)
+					bs = Vector3(0.14, 1.5, 0.95)
+				1:
+					bp = Vector3(c.x + rr.randf_range(-fp.x * 0.3, fp.x * 0.3), y3, c.z - fp.y * 0.5 - 0.5)
+					bs = Vector3(0.14, 1.5, 0.95)
+				2:
+					bp = Vector3(c.x + fp.x * 0.5 + 0.5, y3, c.z + rr.randf_range(-fp.y * 0.3, fp.y * 0.3))
+					bs = Vector3(0.95, 1.5, 0.14)
+				3:
+					bp = Vector3(c.x - fp.x * 0.5 - 0.5, y3, c.z + rr.randf_range(-fp.y * 0.3, fp.y * 0.3))
+					bs = Vector3(0.95, 1.5, 0.14)
+			signs.append(Transform3D(Basis.from_scale(bs), bp))
+			sign_cols.append(NEON_COLORS[rr.randi() % NEON_COLORS.size()])
+	var unit := BoxMesh.new()
+	unit.size = Vector3.ONE
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = unit
+	mm.instance_count = relief.size()
+	for i in range(relief.size()):
+		mm.set_instance_transform(i, relief[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "FacadeRelief"
+	mmi.multimesh = mm
+	mmi.material_override = _mat_dark_metal
+	add_child(mmi)
+	var mm2 := MultiMesh.new()
+	mm2.transform_format = MultiMesh.TRANSFORM_3D
+	mm2.use_colors = true
+	mm2.mesh = unit
+	mm2.instance_count = signs.size()
+	for i in range(signs.size()):
+		mm2.set_instance_transform(i, signs[i])
+		mm2.set_instance_color(i, sign_cols[i])
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.vertex_color_use_as_albedo = true
+	smat.albedo_color = Color(1, 1, 1)
+	var mmi2 := MultiMeshInstance3D.new()
+	mmi2.name = "BladeSigns"
+	mmi2.multimesh = mm2
+	mmi2.material_override = smat
+	add_child(mmi2)

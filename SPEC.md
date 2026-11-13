@@ -190,3 +190,32 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   v12テスト11項目＋v111テスト11項目が合格することを確認済み。
   （当初案の base64＋CI復元方式は、ワークフロー編集がスマホで困難なため
   本方式に置き換え。assets/models_b64/ は旧案のアーカイブとして残置。）
+
+## v2 (2026-11-13) — people & facades
+- **Characters**: Quaternius Ultimate Animated Character Pack (CC0 /
+  Quaternius Asset Licence, see `assets/people_q/SOURCE.md`). All share
+  the CharacterArmature rig (62 bones) and clips; `people.gd` is the
+  registry (`People.spawn`, `People.play` by clip-name suffix, loop
+  enforcement). Player = Punk (Idle/Walk/Run state machine in
+  `player.gd` + a soft fill light). WomanCasual uses an older
+  HumanArmature rig at scale 0.37.
+- **Shipping form**: characters are trimmed in Blender
+  (`blender/trim_chars.py`: 9 clips kept, keyframes halved) into
+  `assets/people_q/opt/`, then wrapped as ModelBlob `.tres` in
+  `assets/people_data/` (same route as the props; `ModelLoader` takes
+  an optional tres path override). Untrimmed originals and the rejected
+  Gobkit candidate set live OUTSIDE the project in
+  `~/workspace/asset_library/`.
+- **Crowd**: 120 NPCs (80 walking block perimeters, 40 standing with
+  Idle/Wave/Clapping clips), centre-biased block choice; animation
+  playback distance-culled beyond 55 m (`npc.gd`).
+- **Facades**: Blender `facade_kit.glb` (storefront: glass band,
+  awning, sign board, AC, pipe) instanced up to 130× on block
+  frontages by `city.gd._build_facade_kits`, sign boards tinted per
+  instance. Procedural MultiMesh relief (912 instances: ledges, wall
+  AC units, corner pipes) + 132 unshaded blade signs with per-instance
+  colours (`_build_facade_relief`). Sidewalk material gained a
+  procedural noise texture (UV scale 1 only — see the llvmpipe note).
+- Tests: `v13_test.gd` (people, 12 items), `v14_test.gd` (facades,
+  4 items); all suites pass in GLB and blob modes. Web pck is now
+  ~19 MB (people data dominates) — first load is noticeably longer.

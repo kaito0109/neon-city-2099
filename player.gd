@@ -19,6 +19,7 @@ var _spring: SpringArm3D
 var _camera: Camera3D
 var _model_yaw: float = 0.0
 var _jump_queued: bool = false
+var _cur_clip: String = ""
 
 const WALK_SPEED: float = 5.4
 const DASH_SPEED: float = 9.2
@@ -36,6 +37,15 @@ func _ready() -> void:
 	_pivot = Node3D.new()
 	_pivot.position.y = 1.62
 	add_child(_pivot)
+	# Soft fill light so the character (and nearby pedestrians) stay
+	# readable against the dark streets.
+	var fill := OmniLight3D.new()
+	fill.position.y = 1.7
+	fill.omni_range = 5.5
+	fill.light_energy = 0.55
+	fill.light_color = Color(0.72, 0.84, 1.0)
+	fill.shadow_enabled = false
+	add_child(fill)
 	_spring = SpringArm3D.new()
 	_spring.spring_length = 4.6
 	_spring.margin = 0.35
@@ -48,49 +58,24 @@ func _ready() -> void:
 func _build_model() -> void:
 	_model = Node3D.new()
 	add_child(_model)
-	var ps: PackedScene = load("res://assets/player.glb") as PackedScene
-	if ps != null:
-		var inst: Node = ps.instantiate()
+	# Quaternius "Punk" (CC0) — mohawk runner, full rig + clip set.
+	var inst: Node3D = People.spawn("Punk")
+	if inst != null:
 		_model.add_child(inst)
-		_anim = _find_anim(inst)
-		# Dark runner outfit with a cyan visor strip.
-		_apply_tint(inst, Color(0.12, 0.13, 0.2))
-		var visor := MeshInstance3D.new()
-		var vb := BoxMesh.new()
-		vb.size = Vector3(0.21, 0.05, 0.05)
-		visor.mesh = vb
-		var vm := StandardMaterial3D.new()
-		vm.albedo_color = Color(0.1, 0.95, 1.0)
-		vm.emission_enabled = true
-		vm.emission = Color(0.1, 0.95, 1.0)
-		vm.emission_energy_multiplier = 3.0
-		visor.material_override = vm
-		visor.position = Vector3(0, 1.56, 0.1)
-		_model.add_child(visor)
-	if _anim != null:
-		var names: PackedStringArray = _anim.get_animation_list()
-		if names.size() > 0:
-			_anim.play(names[0])
-			_anim.speed_scale = 0.0
-
-func _find_anim(node: Node) -> AnimationPlayer:
-	if node is AnimationPlayer:
-		return node as AnimationPlayer
-	for c in node.get_children():
-		var r: AnimationPlayer = _find_anim(c)
-		if r != null:
-			return r
-	return null
-
-func _apply_tint(node: Node, color: Color) -> void:
-	if node is MeshInstance3D:
-		var mi := node as MeshInstance3D
+		_anim = People.find_ap(inst)
+		People.play(_anim, "Idle")
+	else:
+		# Fallback silhouette if the model cannot be loaded.
+		var cap := MeshInstance3D.new()
+		var cm := CapsuleMesh.new()
+		cm.radius = 0.3
+		cm.height = 1.7
+		cap.mesh = cm
+		cap.position.y = 0.85
 		var m := StandardMaterial3D.new()
-		m.albedo_color = color
-		m.roughness = 0.75
-		mi.material_override = m
-	for c in node.get_children():
-		_apply_tint(c, color)
+		m.albedo_color = Color(0.12, 0.13, 0.2)
+		cap.material_override = m
+		_model.add_child(cap)
 
 func make_camera_current() -> void:
 	if _camera != null:
@@ -175,4 +160,17 @@ func _physics_process(delta: float) -> void:
 		_model.rotation.y = _model_yaw
 	if _anim != null:
 		var hspeed: float = Vector2(velocity.x, velocity.z).length()
-		_anim.speed_scale = hspeed / 4.5 if hspeed > 0.4 else 0.0
+		var want: String = "Idle"
+		if hspeed > 3.4:
+			want = "Run"
+		elif hspeed > 0.4:
+			want = "Walk"
+		if want != _cur_clip:
+			_cur_clip = want
+			People.play(_anim, want)
+		if want == "Walk":
+			_anim.speed_scale = clampf(hspeed / 2.2, 0.6, 1.8)
+		elif want == "Run":
+			_anim.speed_scale = clampf(hspeed / 5.6, 0.7, 1.6)
+		else:
+			_anim.speed_scale = 1.0

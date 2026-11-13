@@ -7,7 +7,7 @@ extends RefCounted
 
 static var _cache: Dictionary = {}
 
-static func load_model(glb_path: String) -> Node3D:
+static func load_model(glb_path: String, tres_override: String = "") -> Node3D:
 	var inst: Node3D = null
 	if ResourceLoader.exists(glb_path):
 		var ps: PackedScene = load(glb_path) as PackedScene
@@ -18,7 +18,9 @@ static func load_model(glb_path: String) -> Node3D:
 		if cached != null:
 			inst = cached.instantiate() as Node3D
 	if inst == null:
-		var tres_path: String = glb_path.replace("res://assets/models/", "res://assets/model_data/").replace(".glb", ".tres")
+		var tres_path: String = tres_override
+		if tres_path.is_empty():
+			tres_path = glb_path.replace("res://assets/models/", "res://assets/model_data/").replace(".glb", ".tres")
 		if not ResourceLoader.exists(tres_path):
 			return null
 		var blob: Resource = load(tres_path)
