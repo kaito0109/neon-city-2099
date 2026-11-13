@@ -311,3 +311,13 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
 - Roof finish rework: the old solid emissive "trim" slab blew out
   white and hid players' feet; now a dark cap + thin neon cornice
   frame, so rooftops read as rooftops from the air and on foot.
+
+## v2.4.1 (2026-11-13) — flight self-cancel fix
+- Bug (iPhone report): tapping FLY never engaged flight. The landing
+  check ran from the first frame — a grounded car with no climb
+  input read as "just landed" and cancelled flight instantly. The
+  headless test had masked it by holding climb from the same tick.
+  Fix: landing requires having actually been airborne, plus a 0.6 s
+  takeoff assist so the car lifts off on toggle alone.
+  Regression: tests/v18_test.gd replays the exact phone sequence
+  (toggle with no input → climb → hover → descend → land), 5/5.

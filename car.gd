@@ -7,6 +7,8 @@ var speed: float = 0.0
 var flying: bool = false
 var _roof_landed: bool = false
 var _was_floor: bool = true
+var _flight_airborne: bool = false
+var _takeoff_t: float = 0.0
 var body_color: Color = Color(0.7, 0.1, 0.3)
 var _bob_t: float = 0.0
 var _body: Node3D
@@ -158,6 +160,8 @@ func toggle_flight() -> bool:
 	flying = not flying
 	if flying:
 		_roof_landed = false
+		_flight_airborne = false
+		_takeoff_t = 0.6
 	return flying
 
 func set_driven(on: bool) -> void:
@@ -238,6 +242,12 @@ func _drive(delta: float) -> void:
 		if Input.is_key_pressed(KEY_SHIFT):
 			v_in -= 1.0
 		v_in = clampf(v_in, -1.0, 1.0)
+		# Takeoff assist: lift off on toggle even before any climb
+		# input (without this, a grounded car read as "landed" and
+		# flight cancelled itself on the first frame).
+		_takeoff_t = maxf(_takeoff_t - delta, 0.0)
+		if _takeoff_t > 0.0:
+			v_in = maxf(v_in, 0.65)
 		speed = move_toward(speed, 21.0, delta * 9.0)
 		heading += steer * delta * 0.85
 		rotation.y = heading
@@ -250,7 +260,9 @@ func _drive(delta: float) -> void:
 		move_and_slide()
 		_body.rotation.x = lerpf(_body.rotation.x, clampf(-v_in * 0.16, -0.18, 0.18), delta * 5.0)
 		_body.rotation.z = lerpf(_body.rotation.z, clampf(steer * 0.3, -0.3, 0.3), delta * 5.0)
-		if is_on_floor() and v_in <= 0.0:
+		if not is_on_floor():
+			_flight_airborne = true
+		if is_on_floor() and _flight_airborne and v_in <= 0.0:
 			flying = false
 			_roof_landed = global_position.y > _base_y + 2.0
 			speed = minf(speed, 8.0)
