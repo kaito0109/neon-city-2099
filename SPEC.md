@@ -241,3 +241,11 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   between tall neighbours, 18 silhouette hills on the horizon.
 - Tests: `v15_test.gd` (11 items) + `v15_touch.gd` (4 items); all
   earlier suites still pass in GLB and blob modes.
+
+## v2.2 (2026-11-13) — brightness pass
+- Sky is now a ProceduralSkyMaterial gradient (indigo zenith, violet
+  city-glow horizon) instead of a flat near-black colour; ambient
+  0.66→0.88, moon 0.7→0.85, fog colour lifted to indigo, tonemap
+  brightness 1.02→1.13 / contrast 1.07→1.03, unlit window base,
+  asphalt, sidewalk and ground albedos all raised a step. Night mood
+  kept, but walls and streets no longer crush to pure black.

@@ -71,7 +71,7 @@ func _window_texture(style: int = 0) -> ImageTexture:
 	var w: int = 48
 	var h: int = 96
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0.03, 0.04, 0.09))
+	img.fill(Color(0.075, 0.09, 0.17))
 	var cy: int = 0
 	while cy < h:
 		var cx: int = 0
@@ -114,10 +114,10 @@ func _glow_texture() -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 func _make_materials() -> void:
-	_mat_asphalt = _mat(Color(0.05, 0.05, 0.085), 0.0, 0.34)
-	_mat_sidewalk = _mat(Color(0.12, 0.12, 0.17), 0.0, 0.9)
-	_mat_sidewalk.albedo_texture = _noise_texture(Color(0.12, 0.12, 0.17))
-	_mat_ground = _mat(Color(0.012, 0.012, 0.03), 0.0, 1.0)
+	_mat_asphalt = _mat(Color(0.078, 0.078, 0.12), 0.0, 0.34)
+	_mat_sidewalk = _mat(Color(0.155, 0.155, 0.215), 0.0, 0.9)
+	_mat_sidewalk.albedo_texture = _noise_texture(Color(0.155, 0.155, 0.215))
+	_mat_ground = _mat(Color(0.03, 0.03, 0.062), 0.0, 1.0)
 	_mat_dark_metal = _mat(Color(0.05, 0.05, 0.08), 0.0, 0.5)
 	_glow_tex = _glow_texture()
 	# Aviation beacons (shared material, blinked in _process).
