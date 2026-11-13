@@ -22,6 +22,8 @@ var _rng := RandomNumberGenerator.new()
 var _font: Font
 
 var _mat_asphalt: StandardMaterial3D
+var _mat_asphalt_pbr: StandardMaterial3D
+var road_tile_count: int = 0
 var _mat_sidewalk: StandardMaterial3D
 var _mat_ground: StandardMaterial3D
 var _window_mats: Array = []
@@ -91,6 +93,23 @@ func _window_texture(style: int = 0) -> ImageTexture:
 						img.set_pixel(xx, yy, col)
 			cx += 2
 		cy += cell_h
+	# v2.5 weathering: speckle grime, a few rain-streak columns, and
+	# darker bands at both ends (base splash-back / parapet grime).
+	for i in range(500):
+		var gx: int = _rng.randi() % w
+		var gy: int = _rng.randi() % h
+		img.set_pixel(gx, gy, img.get_pixel(gx, gy) * _rng.randf_range(0.45, 0.8))
+	for s in range(3):
+		var sx2: int = _rng.randi() % w
+		var dark: float = _rng.randf_range(0.55, 0.8)
+		for yy in range(h):
+			img.set_pixel(sx2, yy, img.get_pixel(sx2, yy) * dark)
+	for yy in range(h):
+		var edge: float = minf(float(yy), float(h - 1 - yy)) / float(h)
+		if edge < 0.09:
+			var f2: float = 0.55 + edge * 4.0
+			for xx in range(w):
+				img.set_pixel(xx, yy, img.get_pixel(xx, yy) * f2)
 	return ImageTexture.create_from_image(img)
 
 func _district_indices(pos: Vector3) -> Array:
@@ -125,6 +144,33 @@ func _make_materials() -> void:
 	_mat_asphalt = _mat(Color(0.078, 0.078, 0.12), 0.0, 0.34)
 	_mat_sidewalk = _mat(Color(0.155, 0.155, 0.215), 0.0, 0.9)
 	_mat_sidewalk.albedo_texture = _noise_texture(Color(0.155, 0.155, 0.215))
+	# v2.5 PBR (ambientCG, CC0): photo asphalt on road tiles, concrete
+	# normal/roughness on the sidewalks.
+	var cn: Texture2D = TextureLoader.load_tex("res://assets/textures/concrete_normal.jpg", "res://assets/texture_data/concrete_normal.tres")
+	var cr: Texture2D = TextureLoader.load_tex("res://assets/textures/concrete_rough.jpg", "res://assets/texture_data/concrete_rough.tres")
+	if cn != null:
+		_mat_sidewalk.normal_enabled = true
+		_mat_sidewalk.normal_texture = cn
+		_mat_sidewalk.normal_scale = 0.45
+	if cr != null:
+		_mat_sidewalk.roughness_texture = cr
+	var ac: Texture2D = TextureLoader.load_tex("res://assets/textures/asphalt_color.jpg", "res://assets/texture_data/asphalt_color.tres")
+	var an: Texture2D = TextureLoader.load_tex("res://assets/textures/asphalt_normal.jpg", "res://assets/texture_data/asphalt_normal.tres")
+	var ar: Texture2D = TextureLoader.load_tex("res://assets/textures/asphalt_rough.jpg", "res://assets/texture_data/asphalt_rough.tres")
+	if ac != null:
+		_mat_asphalt_pbr = StandardMaterial3D.new()
+		_mat_asphalt_pbr.albedo_texture = ac
+		_mat_asphalt_pbr.albedo_color = Color(0.82, 0.82, 0.88)
+		_mat_asphalt_pbr.vertex_color_use_as_albedo = true
+		_mat_asphalt_pbr.metallic = 0.0
+		_mat_asphalt_pbr.roughness = 1.0
+		if ar != null:
+			_mat_asphalt_pbr.roughness_texture = ar
+		if an != null:
+			_mat_asphalt_pbr.normal_enabled = true
+			_mat_asphalt_pbr.normal_texture = an
+			_mat_asphalt_pbr.normal_scale = 0.85
+		_mat_asphalt_pbr.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	_mat_ground = _mat(Color(0.03, 0.03, 0.062), 0.0, 1.0)
 	_mat_dark_metal = _mat(Color(0.05, 0.05, 0.08), 0.0, 0.5)
 	_mat_roof = _mat(Color(0.045, 0.05, 0.085), 0.0, 0.95)
@@ -273,6 +319,7 @@ func build(font: Font) -> void:
 	_build_skyline()
 	_build_sky()
 	_build_blender_props()
+	_build_street_props()
 	_build_hero_towers()
 	_build_facade_kits()
 	_build_facade_relief()
@@ -322,6 +369,7 @@ func _build_ground_and_roads() -> void:
 		var c: float = i * BLOCK
 		_box(self, Vector3(EXTENT * 2 + ROAD_W, 0.1, ROAD_W), Vector3(0, 0.02, c), _mat_asphalt)
 		_box(self, Vector3(ROAD_W, 0.1, EXTENT * 2 + ROAD_W), Vector3(c, 0.02, 0), _mat_asphalt)
+	_build_road_tiles()
 	# Glowing center dashes via MultiMesh (one draw call).
 	var dash_mesh := BoxMesh.new()
 	dash_mesh.size = Vector3(3.2, 0.06, 0.35)
@@ -874,6 +922,81 @@ func _process(delta: float) -> void:
 
 # --- v2 facades: Blender ground-floor storefront kits + relief ---------
 
+var street_prop_count: int = 0
+
+func _build_street_props() -> void:
+	# v2.5: Quaternius CC0 street props (Poly Pizza) — benches and
+	# trash cans on the sidewalks, dumpsters at the curb.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31337
+	var root := Node3D.new()
+	root.name = "StreetProps"
+	add_child(root)
+	street_prop_count = 0
+	for b in sidewalk_blocks:
+		var c: Vector3 = b["center"]
+		var half: float = float(b["half"])
+		if rng.randf() < 0.5:
+			var side: int = rng.randi() % 4
+			var along: float = rng.randf_range(-half * 0.45, half * 0.45)
+			var inset: float = half - 1.15
+			var pos := Vector3(c.x, 0.27, c.z)
+			var rot: float = 0.0
+			# The Quaternius bench's seat faces its local -Z, so
+			# these rotations point it out toward the street.
+			match side:
+				0:
+					pos += Vector3(along, 0, -inset)
+				1:
+					pos += Vector3(along, 0, inset)
+					rot = PI
+				2:
+					pos += Vector3(inset, 0, along)
+					rot = -PI * 0.5
+				3:
+					pos += Vector3(-inset, 0, along)
+					rot = PI * 0.5
+			var bench: Node3D = ModelLoader.load_model("res://assets/props_q/bench.glb", "res://assets/props_data/bench.tres")
+			if bench != null:
+				bench.position = pos
+				bench.rotation.y = rot
+				bench.scale = Vector3.ONE * 2.7
+				root.add_child(bench)
+				_add_collider(bench, Vector3(0.66, 0.34, 0.32), Vector3(0, 0.15, 0))
+				street_prop_count += 1
+		if rng.randf() < 0.55:
+			var sx: float = 1.0 if rng.randf() < 0.5 else -1.0
+			var sz: float = 1.0 if rng.randf() < 0.5 else -1.0
+			var can: Node3D = ModelLoader.load_model("res://assets/props_q/trashcan.glb", "res://assets/props_data/trashcan.tres")
+			if can != null:
+				can.position = Vector3(c.x + sx * (half - 1.2), 0.27, c.z + sz * (half - 1.2))
+				can.rotation.y = rng.randf() * TAU
+				root.add_child(can)
+				_add_collider(can, Vector3(0.55, 0.75, 0.55), Vector3(0, 0.36, 0))
+				street_prop_count += 1
+	# Dumpsters at the curb, mid-block so they clear intersections
+	# and the traffic lanes.
+	for i in range(-N, N + 1):
+		var c: float = i * BLOCK
+		for j in range(-N, N):
+			if rng.randf() >= 0.16:
+				continue
+			var t: float = j * BLOCK + BLOCK * 0.5 + rng.randf_range(-9.0, 9.0)
+			var side2: float = 1.0 if rng.randf() < 0.5 else -1.0
+			var dum: Node3D = ModelLoader.load_model("res://assets/props_q/dumpster.glb", "res://assets/props_data/dumpster.tres")
+			if dum == null:
+				continue
+			if rng.randf() < 0.5:
+				dum.position = Vector3(t, 0.07, c + side2 * (ROAD_W * 0.5 - 1.5))
+				dum.rotation.y = 0.0 if side2 > 0.0 else PI
+			else:
+				dum.position = Vector3(c + side2 * (ROAD_W * 0.5 - 1.5), 0.07, t)
+				dum.rotation.y = PI * 0.5 if side2 > 0.0 else -PI * 0.5
+			dum.scale = Vector3.ONE * 0.85
+			root.add_child(dum)
+			_add_collider(dum, Vector3(2.4, 1.3, 2.0), Vector3(0, 0.65, 0))
+			street_prop_count += 1
+
 func _add_collider(inst: Node3D, size: Vector3, offset: Vector3) -> void:
 	var body := StaticBody3D.new()
 	var cs := CollisionShape3D.new()
@@ -1075,6 +1198,50 @@ func _build_facade_relief() -> void:
 		mmi3.material_override = _mat_dark_metal
 		add_child(mmi3)
 
+func _build_road_tiles() -> void:
+	# Photo-PBR asphalt surface: 15 m tiles at UV scale 1 (one draw
+	# call). Z-running roads skip intersection tiles (the X tile
+	# covers them) so no two tiles are ever coplanar.
+	road_tile_count = 0
+	if _mat_asphalt_pbr == null:
+		return
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(15.0, 15.0)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = plane
+	var xforms: Array[Transform3D] = []
+	var cols: Array[Color] = []
+	var rr := RandomNumberGenerator.new()
+	rr.seed = 90210
+	for i in range(-N, N + 1):
+		var c: float = i * BLOCK
+		for k in range(44):
+			var a: float = -322.5 + 15.0 * float(k)
+			var rot := Basis(Vector3.UP, PI * 0.5 * float(rr.randi() % 4))
+			var tint: float = rr.randf_range(0.9, 1.04)
+			xforms.append(Transform3D(rot, Vector3(a, 0.073, c)))
+			cols.append(Color(tint, tint, tint * rr.randf_range(1.0, 1.05)))
+			# Z tiles run on a half-tile-shifted grid: they butt
+			# exactly against the crossing X strips (no overlap, no
+			# gap); only the intersection tile itself is skipped.
+			var za: float = -315.0 + 15.0 * float(k)
+			if absf(za - roundf(za / BLOCK) * BLOCK) > 0.1:
+				xforms.append(Transform3D(rot, Vector3(c, 0.073, za)))
+				cols.append(Color(tint, tint, tint))
+	mm.instance_count = xforms.size()
+	for k in range(xforms.size()):
+		mm.set_instance_transform(k, xforms[k])
+		mm.set_instance_color(k, cols[k])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "RoadTiles"
+	mmi.multimesh = mm
+	mmi.material_override = _mat_asphalt_pbr
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	road_tile_count = xforms.size()
+
 # --- v2.1: elevated expressway, skybridges, horizon hills ---------------
 
 func _build_elevated() -> void:
@@ -1082,16 +1249,18 @@ func _build_elevated() -> void:
 	holder.name = "Expressway"
 	add_child(holder)
 	var deck_y: float = 9.5
-	_box(holder, Vector3(11, 0.5, EXTENT * 2.0), Vector3(0, deck_y, 0), _mat_asphalt)
+	# Deck, barriers and crossbeams are solid: flying cars land on the
+	# deck and drive along it (v2.5 — the deck used to be visual-only).
+	_box(holder, Vector3(11, 0.5, EXTENT * 2.0), Vector3(0, deck_y, 0), _mat_asphalt, true)
 	for sx in [-1.0, 1.0]:
-		_box(holder, Vector3(0.35, 0.75, EXTENT * 2.0), Vector3(sx * 5.4, deck_y + 0.55, 0), _mat_dark_metal)
+		_box(holder, Vector3(0.35, 0.75, EXTENT * 2.0), Vector3(sx * 5.4, deck_y + 0.55, 0), _mat_dark_metal, true)
 		_box(holder, Vector3(0.18, 0.12, EXTENT * 2.0), Vector3(sx * 5.4, deck_y + 1.0, 0), _neon_mats[1])
 	# Pillars on the avenue centre line: traffic lanes run at x = ±3.3,
 	# so a 1.4 m pillar at x = 0 stays clear of AI traffic.
 	for i in range(-10, 11):
 		var pz: float = float(i) * 31.5
 		_box(holder, Vector3(1.4, deck_y, 1.4), Vector3(0, deck_y * 0.5, pz), _mat_dark_metal, true)
-		_box(holder, Vector3(10.6, 0.7, 1.1), Vector3(0, deck_y - 0.6, pz), _mat_dark_metal)
+		_box(holder, Vector3(10.6, 0.7, 1.1), Vector3(0, deck_y - 0.6, pz), _mat_dark_metal, true)
 	# Underpass light strips so the avenue below reads as a lit underpass.
 	for z in range(-320, 321, 16):
 		_box(holder, Vector3(2.4, 0.08, 0.5), Vector3(0, deck_y - 0.32, float(z)), _mat_bulb)
@@ -1127,11 +1296,11 @@ func _build_elevated() -> void:
 			var fb: Vector2 = b["fp"]
 			if along_x:
 				var len_x: float = dx - (fa.x + fb.x) * 0.5 + 1.5
-				_box(holder, Vector3(len_x, 2.8, 2.6), mid, glass)
+				_box(holder, Vector3(len_x, 2.8, 2.6), mid, glass, true)
 				_box(holder, Vector3(len_x, 0.18, 2.9), mid + Vector3(0, 1.5, 0), _district_neon_mat(mid))
 			else:
 				var len_z: float = dz - (fa.y + fb.y) * 0.5 + 1.5
-				_box(holder, Vector3(2.6, 2.8, len_z), mid, glass)
+				_box(holder, Vector3(2.6, 2.8, len_z), mid, glass, true)
 				_box(holder, Vector3(2.9, 0.18, len_z), mid + Vector3(0, 1.5, 0), _district_neon_mat(mid))
 			made += 1
 	skybridge_count = made

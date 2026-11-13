@@ -26,4 +26,15 @@ func _initialize() -> void:
 		blob2.data = bytes2
 		var err2: Error = ResourceSaver.save(blob2, "res://assets/people_data/" + n + ".tres")
 		print("saved person ", n, " bytes=", bytes2.size(), " err=", err2)
+	var props: Array[String] = ["bench", "trashcan", "dumpster"]
+	DirAccess.make_dir_recursive_absolute("res://assets/props_data")
+	for n in props:
+		var bytes3: PackedByteArray = FileAccess.get_file_as_bytes("res://assets/props_q/" + n + ".glb")
+		if bytes3.is_empty():
+			print("MISSING prop ", n)
+			continue
+		var blob3 := ModelBlob.new()
+		blob3.data = bytes3
+		var err3: Error = ResourceSaver.save(blob3, "res://assets/props_data/" + n + ".tres")
+		print("saved prop ", n, " bytes=", bytes3.size(), " err=", err3)
 	quit(0)

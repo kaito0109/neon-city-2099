@@ -9,6 +9,8 @@ var _roof_landed: bool = false
 var _was_floor: bool = true
 var _flight_airborne: bool = false
 var _takeoff_t: float = 0.0
+var _parked_falling: bool = false
+var _rest_t: float = 0.0
 var body_color: Color = Color(0.7, 0.1, 0.3)
 var _bob_t: float = 0.0
 var _body: Node3D
@@ -198,14 +200,29 @@ func _physics_process(delta: float) -> void:
 	else:
 		speed = move_toward(speed, 0.0, delta * 10.0)
 		# A car left parked in mid-air (driver bailed out while flying)
-		# falls and crash-lands instead of hanging in the sky.
+		# falls and crash-lands instead of hanging in the sky. Once the
+		# fall starts it continues until contact is stable for a few
+		# frames — a height gate used to freeze cars mid-slide on low
+		# props (v2.5 dumpsters) before they truly landed.
 		if global_position.y > _base_y + 1.5 and not is_on_floor():
+			_parked_falling = true
+			_rest_t = 0.0
+		if _parked_falling:
 			velocity.x = 0.0
 			velocity.z = 0.0
-			velocity.y = maxf(velocity.y - 22.0 * delta, -30.0)
-			move_and_slide()
 			if is_on_floor():
-				velocity = Vector3.ZERO
+				_rest_t += delta
+				velocity.y = -1.0
+				move_and_slide()
+				if _rest_t > 0.18:
+					_parked_falling = false
+					velocity = Vector3.ZERO
+					if global_position.y < _base_y:
+						global_position.y = _base_y
+			else:
+				_rest_t = 0.0
+				velocity.y = maxf(velocity.y - 22.0 * delta, -30.0)
+				move_and_slide()
 				_roof_landed = global_position.y > _base_y + 2.0
 		else:
 			velocity = Vector3.ZERO
@@ -234,13 +251,16 @@ func _drive(delta: float) -> void:
 	steer = clampf(steer, -1.0, 1.0)
 	var fwd := Vector3(-sin(heading), 0, -cos(heading))
 	if flying:
-		# Flight: auto-cruise forward; throttle becomes climb/sink
-		# (W/GAS up, S/BRK down, Space up, Shift down).
-		var v_in: float = throttle
+		# Flight (v2.5 controls): throttle is thrust again — GAS/W
+		# forward, BRK/S back, release to hover-stop. Altitude is the
+		# left stick's vertical axis on touch, Space/Shift on keys.
+		var v_in: float = 0.0
 		if Input.is_key_pressed(KEY_SPACE):
 			v_in += 1.0
 		if Input.is_key_pressed(KEY_SHIFT):
 			v_in -= 1.0
+		if main != null:
+			v_in += float(main.get("touch_vertical"))
 		v_in = clampf(v_in, -1.0, 1.0)
 		# Takeoff assist: lift off on toggle even before any climb
 		# input (without this, a grounded car read as "landed" and
@@ -248,8 +268,10 @@ func _drive(delta: float) -> void:
 		_takeoff_t = maxf(_takeoff_t - delta, 0.0)
 		if _takeoff_t > 0.0:
 			v_in = maxf(v_in, 0.65)
-		speed = move_toward(speed, 21.0, delta * 9.0)
-		heading += steer * delta * 0.85
+		var f_target: float = throttle * (34.0 if throttle >= 0.0 else -11.0)
+		speed = move_toward(speed, f_target, delta * 15.0)
+		var turn: float = clampf(absf(speed) / 9.0, 0.45, 1.15) * (signf(speed) if absf(speed) > 0.5 else 1.0)
+		heading += steer * delta * turn
 		rotation.y = heading
 		fwd = Vector3(-sin(heading), 0, -cos(heading))
 		velocity.x = fwd.x * speed

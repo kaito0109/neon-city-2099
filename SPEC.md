@@ -321,3 +321,25 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   takeoff assist so the car lifts off on toggle alone.
   Regression: tests/v18_test.gd replays the exact phone sequence
   (toggle with no input → climb → hover → descend → land), 5/5.
+
+## v2.5 (2026-11-13) — flight controls, solid deck, PBR roads, props
+- Flight controls reworked (iPhone feedback: no fwd/back buttons,
+  car drifted forward on its own): GAS/BRK (W/S) are thrust again,
+  release to hover-stop; altitude moved to the left stick's vertical
+  axis on touch, Space/Shift on keys. Auto-cruise removed.
+- The expressway deck, its barriers/crossbeams and the skybridges
+  are solid now — flying cars can land on the deck and drive it.
+- Roads: real PBR asphalt (ambientCG "Asphalt 006", CC0: colour /
+  normal / roughness) on 847 UV-scale-1 tiles; sidewalks gained
+  concrete normal/roughness (ambientCG "Concrete 034", CC0).
+  Textures ship as ModelBlob .tres (assets/texture_data) via
+  texture_loader.gd, same trick as the models.
+- Street props (Quaternius, CC0, via Poly Pizza): benches and trash
+  cans on sidewalks, dumpsters at the curb — 115 placed, all with
+  colliders. Facades gained grime: speckle, rain streaks, dark
+  base/parapet bands in the window texture generator.
+- Parked-car fall rework: a bailed-out car now falls until its
+  contact is stable (the old height gate froze cars mid-slide on
+  low props), then snaps to street height when it lands low.
+- Tests: v18 rewritten for the new controls (incl. landing ON the
+  deck), v19 (tiles/props/materials) 5/5, all prior suites pass.

@@ -18,6 +18,7 @@ var panel_mode: String = "start"
 var money: int = 150
 var wanted: int = 0
 var touch_drive: Vector2 = Vector2.ZERO
+var touch_vertical: float = 0.0
 
 var _rng := RandomNumberGenerator.new()
 var _clock_min: float = 21.0 * 60.0
@@ -67,7 +68,7 @@ func _ready() -> void:
 	hud.set("player", player)
 	hud.call("build", game_font)
 	hud.call("show_panel", "NEON CITY 2099",
-		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、W/S で上昇・下降（自動で前進）\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。",
+		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、GAS/BRK（W/S）で前後、左スティック上下（Space/Shift）で昇降\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。",
 		"スタート")
 
 func _build_environment() -> void:
@@ -353,7 +354,7 @@ func toggle_flight() -> void:
 		return
 	var on: bool = bool(car.call("toggle_flight"))
 	if on:
-		hud.call("toast", "飛行モード — GAS/Wで上昇、BRK/Sで下降")
+		hud.call("toast", "飛行モード — GAS/BRKで前後、左スティック上下で昇降")
 	else:
 		hud.call("toast", "飛行モードOFF")
 

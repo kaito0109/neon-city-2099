@@ -45,14 +45,14 @@ func _physics_process(_delta: float) -> bool:
 				_ok(player.get("in_car") == car, "entered parked car")
 				main.call("toggle_flight")
 				_ok(bool(car.get("flying")), "flight mode on")
-				main.set("touch_drive", Vector2(0, 1))  # GAS: climb
+				main.set("touch_vertical", 1.0)  # stick up: climb
 				_start_y = (car as Node3D).global_position.y
 				phase = 1
 				_phase_t = 0
 		1:
 			if _phase_t == 150:  # ~2.5 s of climb
 				var y: float = (car as Node3D).global_position.y
-				main.set("touch_drive", Vector2.ZERO)
+				main.set("touch_vertical", 0.0)
 				_ok(y > _start_y + 6.0, "car climbed in flight (y %.1f -> %.1f)" % [_start_y, y])
 				# Move to a known spot (roof at y~17 below) for a
 				# deterministic bail-out fall.

@@ -278,6 +278,8 @@ func _process(delta: float) -> void:
 		elif _brk:
 			td.y = -1.0
 		main.set("touch_drive", td)
+		# Flight altitude on the stick's vertical axis (up = rise).
+		main.set("touch_vertical", -float((joystick.get("value") as Vector2).y))
 	minimap.set("main", main)
 	bigmap.set("main", main)
 
