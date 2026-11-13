@@ -249,3 +249,13 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   brightness 1.02→1.13 / contrast 1.07→1.03, unlit window base,
   asphalt, sidewalk and ground albedos all raised a step. Night mood
   kept, but walls and streets no longer crush to pure black.
+
+## v2.3 (2026-11-13) — atmosphere & billboards
+- Air: fog density 0.0038→0.0072 with a brighter blue-indigo fog
+  colour, sky horizon glow lifted, ambient 0.88→1.16, tonemap
+  brightness →1.22. Distance now melts into haze instead of black.
+- 39 hero billboards on tall towers: procedural video-ad art
+  (5 gradient/geometric motifs + scanlines) with brand Label3D
+  (TURBO, データ堂, HOTEL-9, …). Puddles 110→200 and larger.
+- Storefront kits gained same-colour additive reflection pools;
+  two rotating searchlight beams on the tallest towers.

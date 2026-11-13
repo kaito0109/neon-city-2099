@@ -76,11 +76,11 @@ func _build_environment() -> void:
 	# Graded night sky with a city-glow horizon (a flat BG colour read
 	# as a black void above the rooftops).
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.016, 0.024, 0.075)
-	sky_mat.sky_horizon_color = Color(0.14, 0.10, 0.27)
+	sky_mat.sky_top_color = Color(0.03, 0.045, 0.11)
+	sky_mat.sky_horizon_color = Color(0.27, 0.20, 0.44)
 	sky_mat.sky_curve = 0.12
 	sky_mat.ground_bottom_color = Color(0.008, 0.008, 0.03)
-	sky_mat.ground_horizon_color = Color(0.09, 0.065, 0.17)
+	sky_mat.ground_horizon_color = Color(0.12, 0.09, 0.22)
 	sky_mat.ground_curve = 0.08
 	sky_mat.sun_angle_max = 30.0
 	sky_mat.sun_curve = 0.02
@@ -90,14 +90,14 @@ func _build_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.38, 0.41, 0.62)
-	env.ambient_light_energy = 0.88
+	env.ambient_light_energy = 1.16
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.11, 0.09, 0.24)
-	env.fog_density = 0.0038
-	env.fog_sky_affect = 0.5
+	env.fog_light_color = Color(0.15, 0.18, 0.27)
+	env.fog_density = 0.0072
+	env.fog_sky_affect = 0.65
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.13
+	env.adjustment_brightness = 1.22
 	env.adjustment_contrast = 1.03
 	env.adjustment_saturation = 1.12
 	we.environment = env

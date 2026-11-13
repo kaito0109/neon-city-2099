@@ -14,6 +14,9 @@ var sidewalk_blocks: Array = []  # {center: Vector3, half: float}
 var _buildings: Array = []  # {center, fp, height} for facade relief
 var _tank_xforms: Array[Transform3D] = []
 var skybridge_count: int = 0
+var _billboard_mats: Array = []
+var billboard_count: int = 0
+var _searchlights: Array = []
 var holo: Node3D
 var _rng := RandomNumberGenerator.new()
 var _font: Font
@@ -41,6 +44,10 @@ const SIGN_WORDS: Array[String] = [
 	"バー", "ラーメン", "ホテル", "クラブ", "薬局", "電脳酒場", "24H",
 	"麺", "ネオン", "サイバー", "質屋", "カジノ", "BAR-9", "麺屋2099",
 ]
+const BILLBOARD_BRANDS: Array[String] = [
+	"TURBO", "データ堂", "麺NOODLE", "光学堂", "HOTEL-9",
+	"サイバー薬局", "電脳BAR", "NEO質屋",
+]
 
 func _mat(color: Color, emission: float = 0.0, rough: float = 0.85) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -66,7 +73,7 @@ func _window_texture(style: int = 0) -> ImageTexture:
 		[Color(0.35, 1.0, 0.7), Color(0.62, 1.0, 0.86), Color(0.2, 0.85, 0.9)],
 	]
 	var pal: Array = palettes[style % palettes.size()]
-	var lit: float = [0.30, 0.44, 0.24, 0.38, 0.27][style % 5]
+	var lit: float = [0.36, 0.50, 0.30, 0.44, 0.33][style % 5]
 	var cell_h: int = [1, 1, 2, 1, 3][style % 5]
 	var w: int = 48
 	var h: int = 96
@@ -151,6 +158,65 @@ func _make_materials() -> void:
 		_window_mats.append(m)
 	for c in NEON_COLORS:
 		_neon_mats.append(_mat(c, 2.6, 0.4))
+	for k in range(5):
+		var bm := StandardMaterial3D.new()
+		bm.albedo_texture = _billboard_texture(k)
+		bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_billboard_mats.append(bm)
+
+func _disc(img: Image, cx: int, cy: int, r: int, col: Color) -> void:
+	for yy in range(-r, r + 1):
+		var half: int = int(sqrt(float(r * r - yy * yy)))
+		img.fill_rect(Rect2i(cx - half, cy + yy, half * 2, 1), col)
+
+func _billboard_texture(kind: int) -> ImageTexture:
+	# Procedural "video ad" art: gradient + bold geometric motif +
+	# scanlines + a dark brand band at the bottom (text goes on top
+	# as a Label3D). Unshaded, so it glows like the real thing's ads.
+	var w: int = 192
+	var h: int = 384
+	var tops: Array[Color] = [Color(1.0, 0.25, 0.55), Color(0.1, 0.75, 1.0), Color(0.55, 0.3, 1.0), Color(0.15, 0.95, 0.75), Color(1.0, 0.6, 0.1)]
+	var bots: Array[Color] = [Color(1.0, 0.55, 0.1), Color(0.05, 0.2, 0.65), Color(1.0, 0.2, 0.45), Color(0.05, 0.35, 0.55), Color(0.85, 0.15, 0.1)]
+	var top: Color = tops[kind % 5]
+	var bot: Color = bots[kind % 5]
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in range(h):
+		var c: Color = top.lerp(bot, float(y) / float(h - 1))
+		if y % 4 == 3:
+			c *= 0.8
+		img.fill_rect(Rect2i(0, y, w, 1), c)
+	var white := Color(1, 1, 1, 0.92)
+	var dark := Color(0.02, 0.02, 0.08, 0.9)
+	match kind % 5:
+		0:
+			_disc(img, w / 2, 128, 62, Color(1.0, 0.92, 0.62, 0.95))
+			for i in range(5):
+				img.fill_rect(Rect2i(18, 222 + i * 20, w - 36, 9), dark)
+		1:
+			img.fill_rect(Rect2i(w / 2 - 26, 72, 52, 188), white)
+			img.fill_rect(Rect2i(w / 2 - 13, 40, 26, 34), white)
+			img.fill_rect(Rect2i(w / 2 - 26, 150, 52, 34), dark)
+		2:
+			var r: int = 70
+			var ring_i: int = 0
+			while r > 12:
+				_disc(img, w / 2, 148, r, white if ring_i % 2 == 0 else dark)
+				r -= 14
+				ring_i += 1
+		3:
+			for i in range(72):
+				var half2: int = 70 - abs(i - 36) * 2
+				if half2 > 0:
+					img.fill_rect(Rect2i(w / 2 - half2, 76 + i, half2 * 2, 1), white)
+		4:
+			for gy in range(6):
+				for gx in range(4):
+					if (gx + gy) % 2 == 0:
+						img.fill_rect(Rect2i(16 + gx * 42, 36 + gy * 42, 30, 30), Color(1, 1, 1, 0.75))
+			_disc(img, w - 52, 300, 30, white)
+	img.fill_rect(Rect2i(0, h - 58, w, 58), dark)
+	img.fill_rect(Rect2i(0, h - 58, w, 6), white)
+	return ImageTexture.create_from_image(img)
 
 func _noise_texture(base: Color, size: int = 256) -> ImageTexture:
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
@@ -210,6 +276,41 @@ func build(font: Font) -> void:
 	_build_facade_relief()
 	_build_elevated()
 	_build_hills()
+	_build_searchlights()
+
+func _build_searchlights() -> void:
+	var sorted_b: Array = _buildings.duplicate()
+	sorted_b.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["height"]) > float(b["height"]))
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.65, 0.85, 1.0, 0.05)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	var made: int = 0
+	for b in sorted_b:
+		if made >= 2:
+			break
+		var c: Vector3 = b["center"]
+		var h: float = b["height"]
+		if h < 40.0:
+			continue
+		var pivot := Node3D.new()
+		pivot.position = Vector3(c.x, h + 0.3, c.z)
+		add_child(pivot)
+		var cone := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 6.0
+		cm.bottom_radius = 0.35
+		cm.height = 52.0
+		cm.radial_segments = 20
+		cone.mesh = cm
+		cone.position.y = 26.0
+		cone.material_override = mat
+		pivot.add_child(cone)
+		_searchlights.append({"pivot": pivot, "phase": float(made) * 2.1})
+		made += 1
 
 func _build_ground_and_roads() -> void:
 	# Base ground slab + physics.
@@ -343,14 +444,14 @@ func _build_road_details() -> void:
 	var dm := MultiMesh.new()
 	dm.transform_format = MultiMesh.TRANSFORM_3D
 	dm.mesh = disc
-	var count: int = 110
+	var count: int = 200
 	dm.instance_count = count
 	for k in range(count):
 		var road_c: float = float(_rng.randi_range(-N, N)) * BLOCK
 		var along: float = _rng.randf_range(-EXTENT + 12.0, EXTENT - 12.0)
 		var off: float = _rng.randf_range(-5.2, 5.2)
 		var pos: Vector3 = Vector3(along, 0.078, road_c + off) if k % 2 == 0 else Vector3(road_c + off, 0.078, along)
-		var r: float = _rng.randf_range(1.1, 2.9)
+		var r: float = _rng.randf_range(1.6, 4.2)
 		var b := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(r, 1.0, r * _rng.randf_range(0.55, 0.85)))
 		dm.set_instance_transform(k, Transform3D(b, pos))
 	var dmi := MultiMeshInstance3D.new()
@@ -433,6 +534,39 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 		bec.position = Vector3(center.x, height + 0.27 + cyl.height + 0.3, center.z)
 		bec.material_override = _mat_beacon
 		add_child(bec)
+	# Giant video billboard on some tall towers.
+	if height > 36.0 and _rng.randf() < 0.5:
+		var bside: int = _rng.randi() % 4
+		var bdir := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)][bside] as Vector3
+		var bw: float = _rng.randf_range(9.0, 13.0)
+		var bh: float = bw * 1.9
+		var boff: Vector3 = bdir * (fp.x * 0.5 + 0.18) if bdir.x != 0.0 else bdir * (fp.y * 0.5 + 0.18)
+		var bpos: Vector3 = center + boff + Vector3(0, height * 0.58, 0)
+		var plane := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(bw, bh)
+		plane.mesh = qm
+		plane.position = bpos
+		plane.material_override = _billboard_mats[billboard_count % _billboard_mats.size()]
+		if bdir.x > 0.0:
+			plane.rotation.y = PI * 0.5
+		elif bdir.x < 0.0:
+			plane.rotation.y = -PI * 0.5
+		elif bdir.z < 0.0:
+			plane.rotation.y = PI
+		add_child(plane)
+		billboard_count += 1
+		if _font != null:
+			var blab := Label3D.new()
+			blab.text = BILLBOARD_BRANDS[billboard_count % BILLBOARD_BRANDS.size()]
+			blab.font = _font
+			blab.font_size = 144
+			blab.pixel_size = 0.016
+			blab.modulate = Color(1, 1, 1)
+			blab.outline_size = 10
+			blab.position = bpos + bdir * 0.15 + Vector3(0, bh * 0.3, 0)
+			blab.rotation = plane.rotation
+			add_child(blab)
 	# Wall sign on a random side for many buildings.
 	if _rng.randf() < 0.55:
 		var side: int = _rng.randi() % 4
@@ -717,6 +851,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	if holo != null:
 		holo.rotation.y += delta * 0.25
+	for s in _searchlights:
+		(s["pivot"] as Node3D).rotation = Vector3(0.0, _t * 0.35 + float(s["phase"]), 0.4)
 	if _mat_beacon != null:
 		_mat_beacon.emission_energy_multiplier = 1.4 + (sin(_t * 2.2) * 0.5 + 0.5) * 2.8
 
@@ -793,7 +929,23 @@ func _build_facade_kits() -> void:
 			inst.name = "FacadeKit"
 			holder.add_child(inst)
 			_add_collider(inst, Vector3(10.3, 3.8, 1.9), Vector3(0, 1.9, 0.45))
-			_tint_sign(inst, _district_neon_color(c, krng))
+			var sign_col: Color = _district_neon_color(c, krng)
+			_tint_sign(inst, sign_col)
+			# Fake neon reflection pool on the ground in front.
+			var pool := MeshInstance3D.new()
+			var pqm := QuadMesh.new()
+			pqm.size = Vector2(4.2, 6.0)
+			pool.mesh = pqm
+			pool.rotation.x = -PI * 0.5
+			pool.position = Vector3(0, 0.03, 3.4)
+			var pmat := StandardMaterial3D.new()
+			pmat.albedo_texture = _glow_tex
+			pmat.albedo_color = Color(sign_col.r, sign_col.g, sign_col.b, 0.20)
+			pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			pmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			pool.material_override = pmat
+			inst.add_child(pool)
 			placed += 1
 
 func _build_facade_relief() -> void:
