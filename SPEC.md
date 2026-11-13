@@ -362,3 +362,47 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   (ambientCG Facade 008 / 010 / 018B, CC0, night-baked with a
   highlight soft-clip so lit windows don't blow out) as stacked
   ~13 m segments; the rest keep the procedural neon windows.
+
+## v3 (2026-11-14) — visual overhaul P1–P3 (per the Cyberpunk 2077
+## visual-design research: palette discipline, style kits, dusk)
+- P2 style kits (Blender, blender/build_kits_v3.py): ONE shared
+  1024² atlas (blender/paint_atlas.py: entropism concrete, kitsch
+  plastic + round windows, corporate glass, storefront glass, an
+  8×3 lit-pane grid, sign art, hazard/shutter/awning/poster/grille
+  cells). Kits ship UNTEXURED; Godot re-applies the atlas by glTF
+  material name (KitShade shaded / KitGlow unshaded / KitDark /
+  KitPlastic / KitYellow). Three towers — tower_ent (concrete,
+  AC units, pipes, shutter side door), tower_kit (rounded plastic
+  corners, round glow discs, YELLOW roof band), tower_mil (dark
+  glass, fins, sparse cool panes, crown light strip, canopy) — all
+  with a lit ground-floor storefront band + sign boards. Three
+  street modules (shop_a glass+awning, shop_b food stall, shop_c
+  shutter+poster) and two blade signs (blade_sign, blade_sign_y).
+  133 kit buildings replace ~62% of small procedural buildings
+  (district-weighted styles); frontage modules (kits + legacy
+  facade kits) now run 2-per-side in the centre — 175 placed.
+  UV lesson: Blender's primitive cube uses a NET UV layout (each
+  face owns a small tile, not 0..1) — kit UVs are normalised per
+  face onto the atlas rect, otherwise faces sample a sliver and
+  windows stretch ~2×.
+- P1 palette discipline: neon trim/sign materials pulled 15%
+  toward white, emission 2.6→2.3; roof cornice neon only on ~35%
+  of buildings; wall signs 55%→35%; relief blade signs CLUSTER
+  (centre / near junctions 55%, elsewhere 10%) leaving "rest
+  walls"; photo-facade towers dimmed ×0.84 into the palette.
+  Yellow fingerprint (#FCEE0A family): JOB kiosk screens + labels,
+  expressway pillar hazard-stripe bases, first parked car + one
+  traffic colour, kitsch roof bands and food-stall signs.
+- P3 dusk grade: sky horizon is a warm amber-violet band under an
+  indigo zenith; the directional light is a low warm sun
+  (1.0, 0.64, 0.44); fog is coloured violet-grey (0.215, 0.16,
+  0.225) at 0.0068; saturation 1.12→1.07. Steam: 100 vents of
+  stacked billboards at sidewalk edges, tinted ~60% toward the
+  district neon, animated in _process. Wet streets: every
+  street-facing sign registers a spot; _build_streaks lays up to
+  170 additive gradient streaks (MultiMesh) on the road under
+  them, coloured like the sign — fake reflections, zero cost.
+- Tests: new v23 (kits/shops/steam/streaks/kiosk yellow/dusk
+  readback) 12/12 in GLB AND blob modes; v16 updated to the v3
+  fog value + mixed-frontage pool check; v11/v13/v14/v15/v17/
+  v18/v19/v21/v22 all pass. Portraits: tests/v29_kitshot.gd.

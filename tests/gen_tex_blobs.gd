@@ -11,6 +11,7 @@ const PAIRS: Array = [
 	["res://assets/textures/facade_a.jpg", "res://assets/texture_data/facade_a.tres"],
 	["res://assets/textures/facade_b.jpg", "res://assets/texture_data/facade_b.tres"],
 	["res://assets/textures/facade_c.jpg", "res://assets/texture_data/facade_c.tres"],
+	["res://assets/textures/kit_atlas.jpg", "res://assets/texture_data/kit_atlas.tres"],
 ]
 
 func _initialize() -> void:

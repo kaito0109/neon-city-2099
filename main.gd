@@ -77,11 +77,14 @@ func _build_environment() -> void:
 	# Graded night sky with a city-glow horizon (a flat BG colour read
 	# as a black void above the rooftops).
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.03, 0.045, 0.11)
-	sky_mat.sky_horizon_color = Color(0.27, 0.20, 0.44)
-	sky_mat.sky_curve = 0.12
-	sky_mat.ground_bottom_color = Color(0.008, 0.008, 0.03)
-	sky_mat.ground_horizon_color = Color(0.12, 0.09, 0.22)
+	# v3 (P3): dusk is the hero time — a low warm sun band on the
+	# horizon under an indigo zenith, so sky light and neon read in
+	# the same frame (the game's day AND night identities at once).
+	sky_mat.sky_top_color = Color(0.045, 0.055, 0.13)
+	sky_mat.sky_horizon_color = Color(0.52, 0.27, 0.30)
+	sky_mat.sky_curve = 0.10
+	sky_mat.ground_bottom_color = Color(0.012, 0.010, 0.03)
+	sky_mat.ground_horizon_color = Color(0.17, 0.11, 0.19)
 	sky_mat.ground_curve = 0.08
 	sky_mat.sun_angle_max = 30.0
 	sky_mat.sun_curve = 0.02
@@ -90,23 +93,25 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.38, 0.41, 0.62)
-	env.ambient_light_energy = 1.16
+	env.ambient_light_color = Color(0.44, 0.39, 0.56)
+	env.ambient_light_energy = 1.08
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.15, 0.18, 0.27)
-	env.fog_density = 0.0072
-	env.fog_sky_affect = 0.65
+	# Coloured fog (warm violet-grey) fuses the layers and melts
+	# distance into haze instead of black.
+	env.fog_light_color = Color(0.215, 0.16, 0.225)
+	env.fog_density = 0.0068
+	env.fog_sky_affect = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.22
+	env.adjustment_brightness = 1.18
 	env.adjustment_contrast = 1.03
-	env.adjustment_saturation = 1.12
+	env.adjustment_saturation = 1.07
 	we.environment = env
 	add_child(we)
 	var moon := DirectionalLight3D.new()
-	moon.rotation_degrees = Vector3(-52, 35, 0)
-	moon.light_color = Color(0.55, 0.65, 0.95)
-	moon.light_energy = 0.85
+	moon.rotation_degrees = Vector3(-38, 35, 0)
+	moon.light_color = Color(1.0, 0.64, 0.44)
+	moon.light_energy = 0.72
 	moon.shadow_enabled = false
 	add_child(moon)
 
@@ -125,7 +130,9 @@ func _spawn_cars() -> void:
 		[Vector3(128, 0.55, 64), PI], [Vector3(-122, 0.55, 176), -PI * 0.5],
 		[Vector3(8, 0.55, -176), 0.0],
 	]
-	var colors: Array[Color] = [Color(0.75, 0.12, 0.3), Color(0.1, 0.5, 0.9), Color(0.95, 0.6, 0.1), Color(0.4, 0.15, 0.85), Color(0.1, 0.8, 0.5)]
+	# v3 (P1): the first parked car and one traffic colour are the
+	# Cyberpunk-yellow fingerprint; the rest stay varied but muted.
+	var colors: Array[Color] = [Color(0.96, 0.84, 0.08), Color(0.1, 0.5, 0.9), Color(0.75, 0.12, 0.3), Color(0.4, 0.15, 0.85), Color(0.1, 0.8, 0.5)]
 	for i in range(parked_spots.size()):
 		var car: CharacterBody3D = CarScript.new()
 		car.add_to_group("cars")

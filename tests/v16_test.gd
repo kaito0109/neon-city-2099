@@ -22,18 +22,23 @@ func _process(_delta: float) -> bool:
 		var city: Node = main.get("city")
 		_ok(int(city.get("billboard_count")) >= 6, "hero billboards placed (%d)" % int(city.get("billboard_count")))
 		_ok((city.get("_searchlights") as Array).size() == 2, "2 searchlights")
-		# Fog density readback from the live WorldEnvironment.
+		# Fog density readback from the live WorldEnvironment
+		# (v3 dusk grade retuned it from the v2.3 value 0.0072).
 		var fog_ok: bool = false
 		for ch in main.get_children():
 			if ch is WorldEnvironment:
-				fog_ok = is_equal_approx((ch as WorldEnvironment).environment.fog_density, 0.0072)
-		_ok(fog_ok, "fog density is the v2.3 value (0.0072)")
-		# First facade kit carries a reflection pool (QuadMesh child).
+				fog_ok = is_equal_approx((ch as WorldEnvironment).environment.fog_density, 0.0068)
+		_ok(fog_ok, "fog density is the v3 dusk value (0.0068)")
+		# Some frontage module carries a reflection pool (v3 mixes
+		# legacy facade kits with shops — scan all children).
 		var kits: Node = city.get_node_or_null("FacadeKits")
 		var pool_found: bool = false
-		if kits != null and kits.get_child_count() > 0:
-			pool_found = _has_pool(kits.get_child(0))
-		_ok(pool_found, "facade kit has a reflection pool")
+		if kits != null:
+			for ch in kits.get_children():
+				if _has_pool(ch):
+					pool_found = true
+					break
+		_ok(pool_found, "a frontage module has a reflection pool")
 		print("V16 TEST DONE")
 		quit(1 if failed else 0)
 		return true

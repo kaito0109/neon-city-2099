@@ -26,6 +26,21 @@ var _mat_asphalt_pbr: StandardMaterial3D
 var road_tile_count: int = 0
 var _photo_mats: Array = []
 var photo_building_count: int = 0
+# v3 (P1-P3): Blender style kits, sign registry for wet-street
+# streaks, steam vents, and the Cyberpunk-yellow fingerprint.
+var kit_building_count: int = 0
+var shop_module_count: int = 0
+var steam_vent_count: int = 0
+var streak_count: int = 0
+var _sign_spots: Array = []  # {pos, dir, color} emissive signs facing streets
+var _steam: Array = []  # {sprites, phase}
+var _mat_kit_shade: StandardMaterial3D
+var _mat_kit_glow: StandardMaterial3D
+var _mat_kit_plastic: StandardMaterial3D
+var _mat_kit_yellow: StandardMaterial3D
+var _mat_yellow_glow: StandardMaterial3D
+var _mat_hazard: StandardMaterial3D
+var _streak_tex: ImageTexture
 var _mat_sidewalk: StandardMaterial3D
 var _mat_ground: StandardMaterial3D
 var _window_mats: Array = []
@@ -206,8 +221,11 @@ func _make_materials() -> void:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		_window_mats.append(m)
+	# v3 (P1): neon is rationed — pull the trim/sign materials 15%
+	# toward white and drop emission a notch so saturation reads as
+	# an accent on a desaturated city, not a uniform wash.
 	for c in NEON_COLORS:
-		_neon_mats.append(_mat(c, 2.6, 0.4))
+		_neon_mats.append(_mat(c.lerp(Color(1, 1, 1), 0.15), 2.3, 0.4))
 	for k in range(5):
 		var bm := StandardMaterial3D.new()
 		bm.albedo_texture = _billboard_texture(k)
@@ -221,9 +239,46 @@ func _make_materials() -> void:
 		if ft != null:
 			var fm := StandardMaterial3D.new()
 			fm.albedo_texture = ft
+			# v3 (P1): seat the photo towers into the palette — a
+			# slight desaturating dim so they stop out-shouting the
+			# signage layer.
+			fm.albedo_color = Color(0.84, 0.84, 0.9)
 			fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			fm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 			_photo_mats.append(fm)
+	# v3 kit materials: the Blender kits ship untextured; the shared
+	# kit atlas is applied here by material name (KitShade shaded,
+	# KitGlow unshaded so windows/signs glow without WebGL blow-out).
+	var atlas: Texture2D = TextureLoader.load_tex("res://assets/textures/kit_atlas.jpg", "res://assets/texture_data/kit_atlas.tres")
+	if atlas != null:
+		_mat_kit_shade = StandardMaterial3D.new()
+		_mat_kit_shade.albedo_texture = atlas
+		_mat_kit_shade.roughness = 0.88
+		_mat_kit_shade.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		_mat_kit_glow = StandardMaterial3D.new()
+		_mat_kit_glow.albedo_texture = atlas
+		_mat_kit_glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_mat_kit_glow.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_mat_kit_plastic = _mat(Color(0.05, 0.62, 0.66), 0.0, 0.35)
+	_mat_kit_yellow = _mat(Color(0.99, 0.93, 0.04), 0.0, 0.5)
+	_mat_yellow_glow = _mat(Color(0.99, 0.93, 0.04), 2.6, 0.4)
+	# Hazard stripes (expressway pillar bases): tiny procedural texture.
+	var himg := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for yy in range(64):
+		for xx in range(64):
+			himg.set_pixel(xx, yy, Color(0.99, 0.93, 0.04) if (xx + yy) % 32 < 16 else Color(0.05, 0.05, 0.05))
+	_mat_hazard = StandardMaterial3D.new()
+	_mat_hazard.albedo_texture = ImageTexture.create_from_image(himg)
+	_mat_hazard.roughness = 0.8
+	# Wet-street streak gradient: bright at the sign end, fading out.
+	var simg := Image.create(16, 128, false, Image.FORMAT_RGBA8)
+	for yy in range(128):
+		var t: float = float(yy) / 127.0
+		var a: float = pow(1.0 - t, 1.7)
+		for xx in range(16):
+			var edge: float = 1.0 - abs(float(xx) / 15.0 - 0.5) * 1.1
+			simg.set_pixel(xx, yy, Color(1, 1, 1, a * clampf(edge, 0.15, 1.0)))
+	_streak_tex = ImageTexture.create_from_image(simg)
 
 func _disc(img: Image, cx: int, cy: int, r: int, col: Color) -> void:
 	for yy in range(-r, r + 1):
@@ -339,6 +394,8 @@ func build(font: Font) -> void:
 	_build_elevated()
 	_build_hills()
 	_build_searchlights()
+	_build_steam()
+	_build_streaks()
 
 func _build_searchlights() -> void:
 	var sorted_b: Array = _buildings.duplicate()
@@ -562,7 +619,90 @@ func _roof_finish(cx: float, cz: float, fp: Vector2, top_y: float, neon: Materia
 	_box(self, Vector3(t, 0.16, fp.y + 0.55), Vector3(cx - fp.x * 0.5 - 0.05, y, cz), neon)
 	_box(self, Vector3(t, 0.16, fp.y + 0.55), Vector3(cx + fp.x * 0.5 + 0.05, y, cz), neon)
 
+## v3: re-apply the shared kit materials by glTF material name.
+func _apply_kit_mats(n: Node) -> void:
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		if mi.mesh != null:
+			for i in range(mi.mesh.get_surface_count()):
+				var m: Material = mi.mesh.surface_get_material(i)
+				if m == null:
+					continue
+				match m.resource_name:
+					"KitShade":
+						if _mat_kit_shade != null:
+							mi.set_surface_override_material(i, _mat_kit_shade)
+					"KitGlow":
+						if _mat_kit_glow != null:
+							mi.set_surface_override_material(i, _mat_kit_glow)
+					"KitDark":
+						mi.set_surface_override_material(i, _mat_dark_metal)
+					"KitPlastic":
+						mi.set_surface_override_material(i, _mat_kit_plastic)
+					"KitYellow":
+						mi.set_surface_override_material(i, _mat_kit_yellow)
+	for c in n.get_children():
+		_apply_kit_mats(c)
+
+const KIT_STYLES: Dictionary = {
+	"ent": {"file": "tower_ent", "w": 14.0, "h": 22.0, "sign": Color(1.0, 0.15, 0.55)},
+	"kit": {"file": "tower_kit", "w": 13.0, "h": 17.0, "sign": Color(0.99, 0.93, 0.04)},
+	"mil": {"file": "tower_mil", "w": 16.0, "h": 32.0, "sign": Color(0, 0, 0)},
+}
+
+## v3 (P2): place a Blender style kit instead of a procedural box.
+## Returns false when the GLB/blob is unavailable (procedural fallback).
+func _place_kit_building(center: Vector3, fp: Vector2) -> bool:
+	var d: float = Vector2(center.x, center.z).length()
+	var r: float = _rng.randf()
+	var style: String = "ent"
+	if d < 120.0:
+		style = "mil" if r < 0.45 else ("kit" if r < 0.75 else "ent")
+	elif d < 230.0:
+		style = "ent" if r < 0.42 else ("kit" if r < 0.72 else "mil")
+	else:
+		style = "ent" if r < 0.58 else ("kit" if r < 0.86 else "mil")
+	var spec: Dictionary = KIT_STYLES[style]
+	var fname: String = spec["file"]
+	var inst: Node3D = ModelLoader.load_model("res://assets/kits/" + fname + ".glb",
+		"res://assets/kit_data/" + fname + ".tres")
+	if inst == null:
+		return false
+	_apply_kit_mats(inst)
+	var kw: float = spec["w"]
+	var kh: float = spec["h"]
+	var sxz: float = _rng.randf_range(1.02, 1.2) if style != "mil" else _rng.randf_range(0.95, 1.08)
+	var sy: float = _rng.randf_range(0.85, 1.22) if style != "mil" else _rng.randf_range(0.8, 1.02)
+	# Face the kit's storefront away from its block centre.
+	var bc := Vector2(floor((center.x + EXTENT) / BLOCK) * BLOCK - EXTENT + BLOCK * 0.5,
+		floor((center.z + EXTENT) / BLOCK) * BLOCK - EXTENT + BLOCK * 0.5)
+	var rel := Vector2(center.x, center.z) - bc
+	var rot: float = 0.0
+	if absf(rel.x) > absf(rel.y):
+		rot = PI * 0.5 if rel.x > 0.0 else -PI * 0.5
+	else:
+		rot = 0.0 if rel.y > 0.0 else PI
+	inst.position = Vector3(center.x, 0.27, center.z)
+	inst.rotation.y = rot
+	inst.scale = Vector3(sxz, sy, sxz)
+	inst.name = fname
+	add_child(inst)
+	_add_collider(inst, Vector3(kw * sxz, kh * sy, kw * sxz), Vector3(0, kh * sy * 0.5, 0))
+	_buildings.append({"center": center, "fp": Vector2(kw * sxz, kw * sxz), "height": kh * sy})
+	kit_building_count += 1
+	var sc: Color = spec["sign"]
+	if sc != Color(0, 0, 0):  # mil has no sign board -> no streak spot
+		var f := Vector3(sin(rot), 0, cos(rot))
+		_sign_spots.append({"pos": center + f * (kw * sxz * 0.5) + Vector3(0, 3.6, 0),
+			"dir": f, "color": sc})
+	return true
+
 func _add_building(center: Vector3, fp: Vector2) -> void:
+	# v3 (P2): most small-footprint buildings are Blender style kits
+	# now (three Cyberpunk styles with a lit ground-floor band).
+	if fp.x <= 19.5 and fp.y <= 19.5 and _rng.randf() < 0.62:
+		if _place_kit_building(center, fp):
+			return
 	var height: float = _rng.randf_range(13.0, 46.0)
 	if _rng.randf() < 0.12:
 		height = _rng.randf_range(48.0, 72.0)
@@ -591,7 +731,10 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 	# white and swallowed the player's feet; matters now that roofs
 	# are gameplay space.)
 	var neon: Material = _district_neon_mat(center)
-	_roof_finish(center.x, center.z, fp, height + 0.27, neon)
+	# v3 (P1): most roofs get NO neon cornice — the "rest wall"
+	# discipline that keeps the lit ones meaningful.
+	var trim: Material = neon if _rng.randf() < 0.35 else _mat_dark_metal
+	_roof_finish(center.x, center.z, fp, height + 0.27, trim)
 	# Silhouette variety: setback crown on tall towers, annex on big mid-rises.
 	if photo:
 		pass
@@ -599,7 +742,7 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 		var h2: float = height * _rng.randf_range(0.22, 0.4)
 		var fp2: Vector2 = fp * _rng.randf_range(0.55, 0.72)
 		_box(self, Vector3(fp2.x, h2, fp2.y), Vector3(center.x, height + 0.27 + h2 * 0.5, center.z), wm, true)
-		_roof_finish(center.x, center.z, fp2, height + 0.27 + h2, neon)
+		_roof_finish(center.x, center.z, fp2, height + 0.27 + h2, trim)
 		_buildings.append({"center": center, "fp": fp2, "height": height + h2})
 	elif height > 17.0 and fp.x > 30.0 and _rng.randf() < 0.35:
 		var ah: float = _rng.randf_range(4.5, 8.5)
@@ -649,6 +792,8 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 			plane.rotation.y = PI
 		add_child(plane)
 		billboard_count += 1
+		var bcols: Array[Color] = [Color(1.0, 0.25, 0.55), Color(0.1, 0.75, 1.0), Color(0.55, 0.3, 1.0), Color(0.15, 0.95, 0.75), Color(1.0, 0.6, 0.1)]
+		_sign_spots.append({"pos": bpos, "dir": bdir, "color": bcols[(billboard_count - 1) % 5]})
 		if _font != null:
 			var blab := Label3D.new()
 			blab.text = BILLBOARD_BRANDS[billboard_count % BILLBOARD_BRANDS.size()]
@@ -660,8 +805,9 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 			blab.position = bpos + bdir * 0.15 + Vector3(0, bh * 0.3, 0)
 			blab.rotation = plane.rotation
 			add_child(blab)
-	# Wall sign on a random side for many buildings.
-	if _rng.randf() < 0.55:
+	# Wall sign on a random side (v3 P1: rarer — signage clusters
+	# at street level and junctions now carry the colour).
+	if _rng.randf() < 0.35:
 		var side: int = _rng.randi() % 4
 		var dir := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)][side] as Vector3
 		var off: Vector3 = dir * (fp.x * 0.5 + 0.2) if dir.x != 0.0 else dir * (fp.y * 0.5 + 0.2)
@@ -670,6 +816,7 @@ func _add_building(center: Vector3, fp: Vector2) -> void:
 		if dir.z != 0.0:
 			ssize = Vector3(1.6, ssize.y, 0.3)
 		_box(self, ssize, spos, neon)
+		_sign_spots.append({"pos": spos, "dir": dir, "color": _district_neon_color(center, _rng)})
 		if _font != null and _rng.randf() < 0.6:
 			var lab := Label3D.new()
 			lab.text = SIGN_WORDS[_rng.randi() % SIGN_WORDS.size()]
@@ -694,14 +841,15 @@ func _add_kiosk(pos: Vector3) -> void:
 	g.position = pos
 	add_child(g)
 	_box(g, Vector3(1.4, 2.6, 0.8), Vector3(0, 1.3, 0), _mat_dark_metal, true)
-	_box(g, Vector3(1.1, 1.1, 0.12), Vector3(0, 1.7, 0.45), _neon_mats[1])
+	# v3 (P1): JOB kiosks carry the yellow fingerprint.
+	_box(g, Vector3(1.1, 1.1, 0.12), Vector3(0, 1.7, 0.45), _mat_yellow_glow)
 	if _font != null:
 		var lab := Label3D.new()
 		lab.text = "JOB"
 		lab.font = _font
 		lab.font_size = 72
 		lab.pixel_size = 0.008
-		lab.modulate = Color(0.4, 0.95, 1.0)
+		lab.modulate = Color(1.0, 0.93, 0.25)
 		lab.position = Vector3(0, 3.1, 0)
 		lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		g.add_child(lab)
@@ -948,6 +1096,19 @@ func _process(delta: float) -> void:
 		(s["pivot"] as Node3D).rotation = Vector3(0.0, _t * 0.35 + float(s["phase"]), 0.4)
 	if _mat_beacon != null:
 		_mat_beacon.emission_energy_multiplier = 1.4 + (sin(_t * 2.2) * 0.5 + 0.5) * 2.8
+	# v3 steam: slow billow — scale swell, alpha breathe, gentle rise.
+	for vent in _steam:
+		var ph: float = float(vent["phase"]) + _t * 0.45
+		var sprites: Array = vent["sprites"]
+		for si in range(sprites.size()):
+			var sp := sprites[si] as Sprite3D
+			var bs: float = 1.5 + float(si) * 1.25
+			var sw: float = bs * (1.0 + 0.16 * sin(ph + float(si) * 1.35))
+			sp.scale = Vector3(sw, sw * 1.3, sw)
+			var m: Color = sp.modulate
+			m.a = (0.11 - float(si) * 0.022) * (0.72 + 0.28 * sin(ph * 0.8 + float(si) * 1.1))
+			sp.modulate = m
+			sp.position.y = 0.3 + 0.8 + float(si) * 1.15 + 0.22 * sin(ph + float(si) * 1.1)
 
 # --- v2 facades: Blender ground-floor storefront kits + relief ---------
 
@@ -1058,8 +1219,9 @@ func _build_facade_kits() -> void:
 	var krng := RandomNumberGenerator.new()
 	krng.seed = 777
 	var placed: int = 0
+	var cap: int = 175
 	for blk in sidewalk_blocks:
-		if placed >= 130:
+		if placed >= cap:
 			break
 		var c: Vector3 = blk["center"]
 		var d: float = Vector2(c.x, c.z).length()
@@ -1073,32 +1235,49 @@ func _build_facade_kits() -> void:
 		var order: Array = [0, 1, 2, 3]
 		order.shuffle()
 		for si in range(mini(sides, 4)):
-			if placed >= 130:
+			if placed >= cap:
 				break
-			var inst: Node3D = ModelLoader.load_model("res://assets/models/facade_kit.glb")
-			if inst == null:
-				continue
-			var jit: float = krng.randf_range(-7.0, 7.0)
-			var off: float = 20.9
-			match order[si]:
-				0:
-					inst.position = Vector3(c.x + jit, 0.27, c.z + off)
-					inst.rotation.y = 0.0
-				1:
-					inst.position = Vector3(c.x + jit, 0.27, c.z - off)
-					inst.rotation.y = PI
-				2:
-					inst.position = Vector3(c.x + off, 0.27, c.z + jit)
-					inst.rotation.y = PI * 0.5
-				3:
-					inst.position = Vector3(c.x - off, 0.27, c.z + jit)
-					inst.rotation.y = -PI * 0.5
+			# v3 (P2): two module slots per inner side, so the lit
+			# ground-floor band reads continuous along the street.
+			var slots: Array = [0.0]
+			if d < 150.0:
+				slots = [-11.0, 11.0]
+			for jit in slots:
+				if placed >= cap:
+					break
+				_place_frontage(holder, c, order[si], float(jit), krng)
+				placed += 1
+				shop_module_count += 1
+
+## One street-frontage module: legacy facade kit or a v3 shop
+## (glass shop / food stall / shutter front), plus a chance of a
+## perpendicular blade sign (the signage clustering of P1).
+func _place_frontage(holder: Node3D, c: Vector3, side: int, jit: float, krng: RandomNumberGenerator) -> void:
+	var off: float = 20.9
+	var pos := Vector3.ZERO
+	var rot: float = 0.0
+	match side:
+		0:
+			pos = Vector3(c.x + jit, 0.27, c.z + off)
+			rot = 0.0
+		1:
+			pos = Vector3(c.x + jit, 0.27, c.z - off)
+			rot = PI
+		2:
+			pos = Vector3(c.x + off, 0.27, c.z + jit)
+			rot = PI * 0.5
+		3:
+			pos = Vector3(c.x - off, 0.27, c.z + jit)
+			rot = -PI * 0.5
+	var dir := Vector3(sin(rot), 0, cos(rot))
+	var roll: float = krng.randf()
+	var inst: Node3D = null
+	var spot_col: Color = _district_neon_color(c, krng)
+	if roll < 0.34:
+		inst = ModelLoader.load_model("res://assets/models/facade_kit.glb")
+		if inst != null:
 			inst.scale.x = krng.randf_range(1.05, 1.5)
-			inst.name = "FacadeKit"
-			holder.add_child(inst)
-			_add_collider(inst, Vector3(10.3, 3.8, 1.9), Vector3(0, 1.9, 0.45))
-			var sign_col: Color = _district_neon_color(c, krng)
-			_tint_sign(inst, sign_col)
+			_tint_sign(inst, spot_col)
 			# Fake neon reflection pool on the ground in front.
 			var pool := MeshInstance3D.new()
 			var pqm := QuadMesh.new()
@@ -1108,13 +1287,44 @@ func _build_facade_kits() -> void:
 			pool.position = Vector3(0, 0.03, 3.4)
 			var pmat := StandardMaterial3D.new()
 			pmat.albedo_texture = _glow_tex
-			pmat.albedo_color = Color(sign_col.r, sign_col.g, sign_col.b, 0.20)
+			pmat.albedo_color = Color(spot_col.r, spot_col.g, spot_col.b, 0.20)
 			pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			pmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 			pool.material_override = pmat
 			inst.add_child(pool)
-			placed += 1
+	else:
+		var shop_name: String = "shop_a" if roll < 0.56 else ("shop_b" if roll < 0.78 else "shop_c")
+		inst = ModelLoader.load_model("res://assets/kits/" + shop_name + ".glb",
+			"res://assets/kit_data/" + shop_name + ".tres")
+		if inst != null:
+			_apply_kit_mats(inst)
+			spot_col = Color(0.1, 0.9, 1.0) if shop_name == "shop_a" else (
+				Color(0.99, 0.93, 0.04) if shop_name == "shop_b" else Color(1.0, 0.15, 0.55))
+	if inst == null:
+		return
+	inst.position = pos
+	inst.rotation.y = rot
+	inst.name = "Frontage"
+	holder.add_child(inst)
+	_add_collider(inst, Vector3(10.4, 3.9, 1.9), Vector3(0, 1.95, 0.3))
+	_sign_spots.append({"pos": pos + dir * 1.2 + Vector3(0, 3.6, 0), "dir": dir, "color": spot_col})
+	# Blade sign: clustered near the centre, sparse outside.
+	var d: float = Vector2(c.x, c.z).length()
+	var bp: float = 0.45 if d < 150.0 else 0.15
+	if krng.randf() < bp:
+		var yellow: bool = krng.randf() < 0.25
+		var bname: String = "blade_sign_y" if yellow else "blade_sign"
+		var blade: Node3D = ModelLoader.load_model("res://assets/kits/" + bname + ".glb",
+			"res://assets/kit_data/" + bname + ".tres")
+		if blade != null:
+			_apply_kit_mats(blade)
+			var perp := Vector3(dir.z, 0, -dir.x)
+			blade.position = pos + perp * krng.randf_range(-4.6, 4.6) + Vector3(0, 2.55, 0)
+			blade.rotation.y = rot
+			holder.add_child(blade)
+			_sign_spots.append({"pos": blade.position + dir * 1.2, "dir": dir,
+				"color": Color(0.99, 0.93, 0.04) if yellow else Color(0.1, 0.9, 1.0)})
 
 func _build_facade_relief() -> void:
 	_tank_xforms.clear()
@@ -1151,7 +1361,12 @@ func _build_facade_relief() -> void:
 			var px: float = c.x + (fp.x * 0.5 + 0.12) * (1.0 if rr.randf() < 0.5 else -1.0)
 			var pz: float = c.z + (fp.y * 0.5 + 0.12) * (1.0 if rr.randf() < 0.5 else -1.0)
 			relief.append(Transform3D(Basis.from_scale(Vector3(0.16, h * 0.85, 0.16)), Vector3(px, h * 0.425 + 0.27, pz)))
-		if rr.randf() < 0.55:
+		# v3 (P1): blade signs cluster near the centre and near
+		# junctions; long wall stretches stay blank ("rest walls").
+		var cd: float = Vector2(c.x, c.z).length()
+		var jd: float = Vector2(c.x - round(c.x / BLOCK) * BLOCK, c.z - round(c.z / BLOCK) * BLOCK).length()
+		var sign_p: float = 0.55 if (cd < 170.0 or jd < 46.0) else 0.10
+		if rr.randf() < sign_p:
 			var side2: int = rr.randi() % 4
 			var y3: float = rr.randf_range(3.4, 5.2)
 			var bp := Vector3.ZERO
@@ -1171,6 +1386,8 @@ func _build_facade_relief() -> void:
 					bs = Vector3(0.95, 1.5, 0.14)
 			signs.append(Transform3D(Basis.from_scale(bs), bp))
 			sign_cols.append(_district_neon_color(c, rr))
+			var sdir := [Vector3(0, 0, 1), Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(-1, 0, 0)][side2] as Vector3
+			_sign_spots.append({"pos": bp, "dir": sdir, "color": sign_cols[sign_cols.size() - 1]})
 		# Rooftop props: vent boxes near the roof edge, water tanks.
 		if rr.randf() < 0.5:
 			var bw: float = rr.randf_range(1.6, 3.2)
@@ -1226,6 +1443,97 @@ func _build_facade_relief() -> void:
 		mmi3.multimesh = mm3
 		mmi3.material_override = _mat_dark_metal
 		add_child(mmi3)
+
+## v3 (P3): steam vents — stacked soft sprites at sidewalk edges,
+## tinted toward the district neon (lit vapour, the Blade Runner
+## staple), animated cheaply in _process.
+func _build_steam() -> void:
+	var srng := RandomNumberGenerator.new()
+	srng.seed = 555
+	var holder := Node3D.new()
+	holder.name = "Steam"
+	add_child(holder)
+	for blk in sidewalk_blocks:
+		var c: Vector3 = blk["center"]
+		var d: float = Vector2(c.x, c.z).length()
+		var vents: int = 2 if d < 200.0 else 1
+		if srng.randf() < 0.25:
+			vents = 0
+		for v in range(vents):
+			var edge: int = srng.randi() % 4
+			var along: float = srng.randf_range(-20.0, 20.0)
+			var vp: Vector3 = c
+			match edge:
+				0:
+					vp += Vector3(along, 0, 22.6)
+				1:
+					vp += Vector3(along, 0, -22.6)
+				2:
+					vp += Vector3(22.6, 0, along)
+				3:
+					vp += Vector3(-22.6, 0, along)
+			vp.y = 0.3
+			var tint: Color = _district_neon_color(vp, srng).lerp(Color(0.72, 0.76, 0.84), 0.62)
+			var sprites: Array = []
+			for s in range(3):
+				var sp := Sprite3D.new()
+				sp.texture = _glow_tex
+				sp.modulate = Color(tint.r, tint.g, tint.b, 0.11 - float(s) * 0.022)
+				sp.pixel_size = 0.021
+				sp.position = vp + Vector3(0, 0.8 + float(s) * 1.15, 0)
+				var bs: float = 1.5 + float(s) * 1.25
+				sp.scale = Vector3(bs, bs * 1.3, bs)
+				sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+				sp.shaded = false
+				holder.add_child(sp)
+				sprites.append(sp)
+			_steam.append({"sprites": sprites, "phase": srng.randf() * TAU})
+			steam_vent_count += 1
+
+## v3 (P3): fake wet-street reflections — one additive MultiMesh of
+## stretched gradient streaks under the registered street-facing
+## signs, coloured like the sign (the classic neon-streak trick;
+## zero reflection rendering).
+func _build_streaks() -> void:
+	if _sign_spots.is_empty() or _streak_tex == null:
+		return
+	var mesh := PlaneMesh.new()
+	mesh.size = Vector2(1, 1)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = _streak_tex
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.vertex_color_use_as_albedo = true
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = mesh
+	var spots: Array = _sign_spots.duplicate()
+	if spots.size() > 170:
+		spots.resize(170)
+	mm.instance_count = spots.size()
+	var srng := RandomNumberGenerator.new()
+	srng.seed = 909
+	for i in range(spots.size()):
+		var spot: Dictionary = spots[i]
+		var dir: Vector3 = spot["dir"]
+		var yaw: float = atan2(dir.x, dir.z)
+		var len_: float = srng.randf_range(6.0, 11.0)
+		var wid: float = srng.randf_range(0.9, 1.9)
+		var base := Vector3((spot["pos"] as Vector3).x, 0, (spot["pos"] as Vector3).z)
+		var ctr: Vector3 = base + dir * (2.2 + len_ * 0.32)
+		ctr.y = 0.098
+		var basis := Basis.from_euler(Vector3(0, yaw, 0)).scaled(Vector3(wid, 1, len_))
+		mm.set_instance_transform(i, Transform3D(basis, ctr))
+		var col: Color = spot["color"]
+		mm.set_instance_color(i, Color(col.r * 0.5, col.g * 0.5, col.b * 0.5, 0.85))
+		streak_count += 1
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	mmi.name = "WetStreaks"
+	add_child(mmi)
 
 func _build_road_tiles() -> void:
 	# Photo-PBR asphalt surface: 15 m tiles at UV scale 1 (one draw
@@ -1290,6 +1598,9 @@ func _build_elevated() -> void:
 		var pz: float = float(i) * 31.5
 		_box(holder, Vector3(1.4, deck_y, 1.4), Vector3(0, deck_y * 0.5, pz), _mat_dark_metal, true)
 		_box(holder, Vector3(10.6, 0.7, 1.1), Vector3(0, deck_y - 0.6, pz), _mat_dark_metal, true)
+		# v3 (P1): hazard-stripe base band — the yellow fingerprint
+		# at street level along the whole avenue.
+		_box(holder, Vector3(1.56, 1.1, 1.56), Vector3(0, 0.82, pz), _mat_hazard)
 	# Underpass light strips so the avenue below reads as a lit underpass.
 	for z in range(-320, 321, 16):
 		_box(holder, Vector3(2.4, 0.08, 0.5), Vector3(0, deck_y - 0.32, float(z)), _mat_bulb)
