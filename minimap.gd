@@ -15,7 +15,7 @@ func _w2m(p: Vector3) -> Vector2:
 	return Vector2((p.x + world_extent) * s, (p.z + world_extent) * s)
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.01, 0.02, 0.06, 0.88))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.004, 0.012, 0.022, 0.92))
 	if main == null:
 		return
 	var city: Node = main.get("city")
@@ -30,17 +30,20 @@ func _draw() -> void:
 	var rl: Array = city.get("road_lines")
 	if not rl.is_empty():
 		for seg in rl:
-			draw_line(_w2m(seg[0]), _w2m(seg[1]), Color(0.25, 0.3, 0.45, 0.8), 1.0)
+			draw_line(_w2m(seg[0]), _w2m(seg[1]), Color(0.3, 0.55, 0.68, 0.9), 1.0)
 	else:
 		var n: int = int(city.get("N"))
 		var block: float = float(city.get("BLOCK"))
 		for i in range(-n, n + 1):
 			var c: float = i * block
-			draw_line(_w2m(Vector3(-world_extent, 0, c)), _w2m(Vector3(world_extent, 0, c)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
-			draw_line(_w2m(Vector3(c, 0, -world_extent)), _w2m(Vector3(c, 0, world_extent)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
-	# Kiosks.
+			draw_line(_w2m(Vector3(-world_extent, 0, c)), _w2m(Vector3(world_extent, 0, c)), Color(0.3, 0.55, 0.68, 0.9), 1.0)
+			draw_line(_w2m(Vector3(c, 0, -world_extent)), _w2m(Vector3(c, 0, world_extent)), Color(0.3, 0.55, 0.68, 0.9), 1.0)
+	# Kiosks: yellow diamonds (objective colour).
 	for k in city.get("poi_kiosks"):
-		draw_circle(_w2m(k), 2.0, Color(0.3, 0.9, 1.0))
+		var kp: Vector2 = _w2m(k)
+		draw_colored_polygon(PackedVector2Array([
+			kp + Vector2(0, -3.2), kp + Vector2(3.2, 0), kp + Vector2(0, 3.2), kp + Vector2(-3.2, 0)]),
+			Color(0.99, 0.93, 0.04))
 	# Cars.
 	for cnode in get_tree().get_nodes_in_group("cars"):
 		draw_circle(_w2m((cnode as Node3D).global_position), 2.0, Color(0.75, 0.75, 0.8))
@@ -51,8 +54,11 @@ func _draw() -> void:
 	# Mission target.
 	var target: Variant = main.get("mission_target_pos")
 	if target != null:
-		var pulse: float = 3.2 + sin(Time.get_ticks_msec() * 0.008) * 0.9
-		draw_circle(_w2m(target), pulse, Color(1.0, 0.85, 0.15))
+		var pulse: float = 4.4 + sin(Time.get_ticks_msec() * 0.008) * 1.1
+		var tp: Vector2 = _w2m(target)
+		draw_colored_polygon(PackedVector2Array([
+			tp + Vector2(0, -pulse), tp + Vector2(pulse, 0), tp + Vector2(0, pulse), tp + Vector2(-pulse, 0)]),
+			Color(1.0, 0.0, 0.235))
 	# Player arrow.
 	var pp: Vector2 = _w2m((player as Node3D).global_position)
 	# Player arrow. In-game forward is (-sin(a), -cos(a)) in world XZ for both
@@ -65,5 +71,9 @@ func _draw() -> void:
 	var dir := Vector2(-sin(a), -cos(a))
 	var perp := Vector2(-dir.y, dir.x)
 	var pts := PackedVector2Array([pp + dir * 6.0, pp + perp * 3.6 - dir * 3.0, pp - perp * 3.6 - dir * 3.0])
+	var pts_big := PackedVector2Array([pp + dir * 7.4, pp + perp * 4.6 - dir * 3.8, pp - perp * 4.6 - dir * 3.8])
+	draw_colored_polygon(pts_big, Color(0.0, 0.94, 1.0))
 	draw_colored_polygon(pts, Color(1, 1, 1))
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.4, 0.9, 1.0, 0.5), false, 1.5)
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.94, 1.0, 0.55), false, 1.5)
+	# Red corner tick, CP panel signature.
+	draw_line(Vector2(0, 1), Vector2(size.x * 0.18, 1), Color(1.0, 0.0, 0.235), 3.0)

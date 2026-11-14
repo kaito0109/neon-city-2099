@@ -6,6 +6,8 @@ var hp: float = 100.0
 var dead: bool = false
 var yaw: float = 0.0
 var pitch: float = -0.18
+var _yaw_t: float = 0.0
+var _pitch_t: float = -0.18
 var in_car: Node3D = null
 
 var touch_move: Vector2 = Vector2.ZERO
@@ -90,9 +92,8 @@ func make_camera_current() -> void:
 		_camera.make_current()
 
 func add_look_input(rel: Vector2) -> void:
-	yaw -= rel.x * 0.0042
-	pitch = clampf(pitch - rel.y * 0.0042, -1.1, 1.2)
-	_apply_camera()
+	_yaw_t -= rel.x * 0.0042
+	_pitch_t = clampf(_pitch_t - rel.y * 0.0042, -1.1, 1.2)
 
 func _apply_camera() -> void:
 	if _pivot != null:
@@ -237,10 +238,17 @@ func _physics_process(delta: float) -> void:
 	if in_car != null:
 		global_position = in_car.global_position + Vector3(0, 1.2, 0)
 		return
+	# Ease the camera toward the look targets (feel, v4.2). This
+	# runs even while movement input is disabled: the camera is a
+	# separate concern from locomotion (the v15 touch test drives
+	# look with input_enabled=false to isolate it).
+	var _lk: float = clampf(delta * 20.0, 0.0, 1.0)
+	yaw = lerp_angle(yaw, _yaw_t, _lk)
+	pitch = lerpf(pitch, _pitch_t, _lk)
+	_apply_camera()
 	if not input_enabled or dead:
 		velocity = Vector3.ZERO
 		return
-	_apply_camera()
 	var iv := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A):
 		iv.x -= 1.0

@@ -56,11 +56,27 @@ func _update_knob(global_pos: Vector2) -> void:
 	if delta.length() > radius:
 		delta = delta.normalized() * radius
 	knob_offset = delta
-	value = delta / radius
+	# Feel: 0.12 deadzone, then a 1.35 power curve so small pushes
+	# walk and full pushes run (raw knob travel stays 1:1 visual).
+	var raw: Vector2 = delta / radius
+	var mag: float = raw.length()
+	if mag < 0.12:
+		value = Vector2.ZERO
+	else:
+		var curved: float = pow(clampf((mag - 0.12) / 0.88, 0.0, 1.0), 1.35)
+		value = raw.normalized() * curved
 	queue_redraw()
 
 func _draw() -> void:
 	var center: Vector2 = size * 0.5
-	draw_circle(center, radius, Color(1, 1, 1, 0.13))
-	draw_arc(center, radius, 0.0, TAU, 40, Color(1, 1, 1, 0.45), 2.0)
-	draw_circle(center + knob_offset, radius * 0.42, Color(1, 1, 1, 0.35))
+	draw_circle(center, radius, Color(0.004, 0.012, 0.022, 0.55))
+	draw_arc(center, radius, 0.0, TAU, 64, Color(0.0, 0.94, 1.0, 0.65), 2.5)
+	draw_arc(center, radius * 0.78, 0.0, TAU, 48, Color(0.0, 0.94, 1.0, 0.16), 1.5)
+	# Diagonal tick marks (CP HUD flavour).
+	for a in [PI * 0.25, PI * 0.75, PI * 1.25, PI * 1.75]:
+		var d := Vector2(cos(a), sin(a))
+		draw_line(center + d * (radius - 9.0), center + d * (radius - 2.0), Color(1.0, 0.0, 0.235, 0.8), 2.5)
+	var kc: Vector2 = center + knob_offset
+	draw_circle(kc, radius * 0.42, Color(0.01, 0.04, 0.06, 0.75))
+	draw_arc(kc, radius * 0.42, 0.0, TAU, 40, Color(0.0, 0.94, 1.0, 0.9), 2.5)
+	draw_circle(kc, 4.0, Color(0.0, 0.94, 1.0, 0.9))

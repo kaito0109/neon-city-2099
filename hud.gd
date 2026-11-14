@@ -53,7 +53,10 @@ func _mk_label(text: String, size: int, color: Color) -> Label:
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
-func build(font: Font) -> void:
+var _latin: Font
+
+func build(font: Font, latin: Font = null) -> void:
+	_latin = latin
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	if font != null:
@@ -62,28 +65,38 @@ func build(font: Font) -> void:
 		theme.default_font_size = 18
 		root.theme = theme
 	add_child(root)
-	# Stats.
-	hp_label = _mk_label("HP", 16, Color(0.6, 1, 0.8))
+	# Stats (Cyberpunk-style: icy text, segmented HP bar that
+	# floods red when low, Rajdhani for Latin/digits).
+	hp_label = _mk_label("HP 100", 16, CpUi.ICY)
 	hp_label.position = Vector2(16, 10)
 	root.add_child(hp_label)
 	hp_bar = ProgressBar.new()
 	hp_bar.min_value = 0
 	hp_bar.max_value = 100
 	hp_bar.value = 100
-	hp_bar.position = Vector2(52, 10)
-	hp_bar.size = Vector2(170, 18)
+	hp_bar.show_percentage = false
+	hp_bar.position = Vector2(86, 11)
+	hp_bar.size = Vector2(170, 17)
 	hp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hp_bar.add_theme_stylebox_override("background",
+		CpUi.style(Vector2i(170, 17), Color(0.01, 0.03, 0.05, 0.85), CpUi.CYAN_DIM, 5.0, 1.5, CpUi.C_DIAG, Color(0, 0, 0, 0), 10))
+	_hp_fill_ok = CpUi.style(Vector2i(170, 17), Color(0.05, 0.85, 0.9, 0.95), Color(0.05, 0.85, 0.9, 0.95), 5.0, 1.0, CpUi.C_DIAG, Color(0, 0, 0, 0), 10)
+	_hp_fill_low = CpUi.style(Vector2i(170, 17), CpUi.RED, CpUi.RED, 5.0, 1.0, CpUi.C_DIAG, Color(0, 0, 0, 0), 10)
+	hp_bar.add_theme_stylebox_override("fill", _hp_fill_ok)
 	root.add_child(hp_bar)
-	money_label = _mk_label("€$ 0", 20, Color(1.0, 0.85, 0.3))
+	money_label = _mk_label("€$ 0", 22, CpUi.YELLOW)
 	money_label.position = Vector2(16, 34)
 	root.add_child(money_label)
-	wanted_label = _mk_label("", 22, Color(1.0, 0.3, 0.3))
+	wanted_label = _mk_label("", 22, CpUi.RED)
 	wanted_label.position = Vector2(16, 62)
 	root.add_child(wanted_label)
-	clock_label = _mk_label("21:00", 18, Color(0.65, 0.85, 1))
-	clock_label.position = Vector2(238, 10)
+	clock_label = _mk_label("21:00", 17, CpUi.ICY)
+	clock_label.position = Vector2(266, 10)
 	root.add_child(clock_label)
-	mission_label = _mk_label("", 18, Color(0.55, 0.95, 1))
+	if _latin != null:
+		for l in [hp_label, money_label, clock_label]:
+			l.add_theme_font_override("font", _latin)
+	mission_label = _mk_label("", 18, CpUi.ICY)
 	mission_label.position = Vector2(16, 92)
 	mission_label.size = Vector2(560, 54)
 	mission_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -97,10 +110,10 @@ func build(font: Font) -> void:
 	bigmap.visible = false
 	root.add_child(bigmap)
 	# Center / prompt / toast.
-	center_label = _mk_label("", 30, Color(1, 0.9, 0.4))
+	center_label = _mk_label("", 30, CpUi.YELLOW)
 	center_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(center_label)
-	toast_label = _mk_label("", 20, Color(0.5, 1, 0.6))
+	toast_label = _mk_label("", 20, Color(0.62, 0.95, 1.0))
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(toast_label)
 	prompt_label = _mk_label("", 20, Color(1, 1, 1))
@@ -152,15 +165,37 @@ func _mk_touch_button(id: String, text: String) -> void:
 	b.text = text
 	b.custom_minimum_size = Vector2(74, 74)
 	b.size = Vector2(74, 74)
-	b.modulate = Color(1, 1, 1, 0.85)
+	b.focus_mode = Control.FOCUS_NONE
+	# ACT is the primary action: signature yellow rim. The rest
+	# are cyan data buttons. Pressed floods the rim colour in.
+	var rim: Color = CpUi.YELLOW if id == "ACT" else CpUi.CYAN
+	var styles: Dictionary = CpUi.touch_styles(rim)
+	b.add_theme_stylebox_override("normal", styles["normal"])
+	b.add_theme_stylebox_override("hover", styles["hover"])
+	b.add_theme_stylebox_override("pressed", styles["pressed"])
+	b.add_theme_stylebox_override("disabled", styles["disabled"])
+	b.add_theme_color_override("font_color", rim if id == "ACT" else CpUi.ICY)
+	b.add_theme_color_override("font_hover_color", rim if id == "ACT" else CpUi.ICY)
+	b.add_theme_color_override("font_pressed_color", Color(0.02, 0.04, 0.05))
+	b.add_theme_font_size_override("font_size", 16)
+	if _latin != null:
+		b.add_theme_font_override("font", _latin)
+	# Tactile pop: shrink slightly while held.
+	b.pivot_offset = Vector2(37, 37)
+	b.button_down.connect(func() -> void: b.scale = Vector2(0.92, 0.92))
+	b.button_up.connect(func() -> void: b.scale = Vector2.ONE)
 	touch_root.add_child(b)
 	touch_buttons[id] = b
 
 func _build_panel(root: Control) -> void:
 	panel = Panel.new()
-	panel.size = Vector2(560, 392)
+	panel.size = Vector2(600, 448)
+	panel.add_theme_stylebox_override("panel",
+		CpUi.style(Vector2i(600, 448), CpUi.INK_SOLID, CpUi.CYAN, 24.0, 2.0, CpUi.C_DIAG, CpUi.RED))
 	root.add_child(panel)
-	panel_title = _mk_label("NEON CITY 2099", 34, Color(1.0, 0.3, 0.75))
+	panel_title = _mk_label("NEON CITY 2099", 40, CpUi.RED)
+	if _latin != null:
+		panel_title.add_theme_font_override("font", _latin)
 	panel_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(panel_title)
 	panel_text = _mk_label("", 16, Color(0.9, 0.95, 1))
@@ -170,6 +205,18 @@ func _build_panel(root: Control) -> void:
 	panel_button = Button.new()
 	panel_button.text = "スタート"
 	panel_button.size = Vector2(200, 52)
+	panel_button.focus_mode = Control.FOCUS_NONE
+	panel_button.add_theme_stylebox_override("normal",
+		CpUi.style(Vector2i(200, 52), CpUi.YELLOW, CpUi.YELLOW, 12.0, 2.0))
+	panel_button.add_theme_stylebox_override("hover",
+		CpUi.style(Vector2i(200, 52), Color(1.0, 0.97, 0.25), CpUi.YELLOW, 12.0, 2.0))
+	panel_button.add_theme_stylebox_override("pressed",
+		CpUi.style(Vector2i(200, 52), Color(0.82, 0.76, 0.03), CpUi.YELLOW, 12.0, 2.0))
+	panel_button.add_theme_color_override("font_color", Color(0.02, 0.03, 0.02))
+	panel_button.add_theme_color_override("font_hover_color", Color(0.02, 0.03, 0.02))
+	panel_button.add_theme_color_override("font_pressed_color", Color(0.02, 0.03, 0.02))
+	panel_button.add_theme_font_size_override("font_size", 20)
+	panel_text.add_theme_font_size_override("font_size", 15)
 	panel_button.pressed.connect(func() -> void: main.call("on_panel_button"))
 	panel.add_child(panel_button)
 
@@ -192,12 +239,12 @@ func _layout() -> void:
 	touch_buttons["MAP"].position = Vector2(vp.x - 196, vp.y - 380)
 	touch_buttons["GAS"].position = Vector2(vp.x - 108, vp.y - 196)
 	touch_buttons["BRK"].position = Vector2(vp.x - 196, vp.y - 196)
-	panel.position = Vector2((vp.x - 560) * 0.5, (vp.y - 392) * 0.5)
-	panel_title.position = Vector2(20, 18)
-	panel_title.size = Vector2(520, 44)
-	panel_text.position = Vector2(30, 74)
-	panel_text.size = Vector2(500, 232)
-	panel_button.position = Vector2(180, 318)
+	panel.position = Vector2((vp.x - 600) * 0.5, (vp.y - 448) * 0.5)
+	panel_title.position = Vector2(20, 16)
+	panel_title.size = Vector2(560, 46)
+	panel_text.position = Vector2(30, 68)
+	panel_text.size = Vector2(540, 292)
+	panel_button.position = Vector2(200, 378)
 
 func _toggle_big_map() -> void:
 	big_map_open = not big_map_open
@@ -212,8 +259,13 @@ func show_panel(title: String, text: String, button: String) -> void:
 func hide_panel() -> void:
 	panel.visible = false
 
+var _hp_fill_ok: StyleBox
+var _hp_fill_low: StyleBox
+
 func set_stats(hp: float, money: int, wanted: int, clock_str: String) -> void:
 	hp_bar.value = hp
+	hp_label.text = "HP %d" % int(hp)
+	hp_bar.add_theme_stylebox_override("fill", _hp_fill_low if hp < 30.0 else _hp_fill_ok)
 	money_label.text = "€$ %d" % money
 	wanted_label.text = "★".repeat(wanted) if wanted > 0 else ""
 	clock_label.text = clock_str

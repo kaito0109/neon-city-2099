@@ -399,8 +399,12 @@ func _drive(delta: float) -> void:
 	# ease back to centre shortly after the drag ends.
 	if _look_idle_t > 0.7:
 		var k: float = clampf(delta * 2.2, 0.0, 1.0)
-		look_yaw = lerpf(look_yaw, 0.0, k)
-		look_pitch = lerpf(look_pitch, 0.0, k)
+		_look_yaw_t = lerpf(_look_yaw_t, 0.0, k)
+		_look_pitch_t = lerpf(_look_pitch_t, 0.0, k)
+	# Ease the actual orbit after the input target (feel, v4.2).
+	var _lk2: float = clampf(delta * 16.0, 0.0, 1.0)
+	look_yaw = lerp_angle(look_yaw, _look_yaw_t, _lk2)
+	look_pitch = lerpf(look_pitch, _look_pitch_t, _lk2)
 	_cam_pivot.rotation = Vector3(-0.22 + look_pitch, look_yaw, 0.0)
 	_camera.fov = 70.0 + clampf(absf(speed) / MAX_SPEED, 0.0, 1.0) * 10.0
 
@@ -408,9 +412,12 @@ var look_yaw: float = 0.0
 var look_pitch: float = 0.0
 var _look_idle_t: float = 99.0
 
+var _look_yaw_t: float = 0.0
+var _look_pitch_t: float = 0.0
+
 func add_car_look(rel: Vector2) -> void:
-	look_yaw -= rel.x * 0.0042
-	look_pitch = clampf(look_pitch - rel.y * 0.0042, -1.15, 0.62)
+	_look_yaw_t -= rel.x * 0.0042
+	_look_pitch_t = clampf(_look_pitch_t - rel.y * 0.0042, -1.15, 0.62)
 	_look_idle_t = 0.0
 
 func _traffic(delta: float) -> void:

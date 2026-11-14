@@ -580,3 +580,44 @@ bright blue under the cool dawn ambient — tints rebalanced to
 warm dark greys (R>=G>B, ~0.46-0.60) so the ground sits in the
 same grade as the buildings; verified in spawn + market shots.
 Draws unchanged (spawn 1000). All suites pass; Web export OK.
+
+## v4.1 (2026-11-15, from his iPhone photos)
+- **Fall-out fixed**: probe raycasts found the only collision hole was the
+  perimeter trench (heightfield ended at ±232, walls at ±235). Heightfield
+  now spans ±244, boundary walls run y −13..137, and `main._rescue_fallout()`
+  returns the player (and a driven car) to the clinic if y < −8 ever happens.
+- **Light pools tamed for the device** (Xvfb reads dimmer than the iPhone):
+  lamp pools 0.30→0.16, sign pools 0.20→0.11, mega pool 0.34→0.15, streaks ×0.36.
+- **PlazaDisc**: the holo plinth shipped with pale LineMat and read as a white
+  ellipse (photo 4's UFO) — now a dark metal base via a name override.
+- **Searchlights removed** in v4 (tilted additive cones read as geometry
+  errors); world_v4 overrides `_build_searchlights()` to a no-op.
+- **NPCs**: standing spots are random along the block perimeter (corners
+  stacked NPCs into each other), walkers start mid-edge (no lockstep
+  overlap), standing NPCs gently separate at runtime.
+- **Banks**: terrace embankments got their own BankMat — cracked PBR at
+  3.5 m tiles with a stronger normal, instead of sharing the canal concrete.
+- **Skyline**: dark silhouette clones of the window materials + dimmer,
+  rarer cornices (the pastel ring clashed with the modelled city).
+
+## v4.2 UI (2026-11-15, overnight)
+- **CpUi kit** (`cpui.gd`): Cyberpunk-2077 UI language rasterised into
+  StyleBoxTextures — 45° chamfered corners (signature diagonal pair),
+  near-black ink fills, cyan #00f0ff / red #ff003c / yellow #fcee0a /
+  icy #e0f7ff palette, red accent segment on panel top edges.
+- **Touch buttons**: chamfered dark panels, cyan rims (ACT = yellow, the
+  primary action), pressed state floods the rim colour, 0.92 press pop.
+- **HP bar**: segmented (10 pips) chamfered bar, floods red below 30 HP;
+  value in the label ("HP 87"). Money/clock in Rajdhani.
+- **Title panel**: chamfered ink panel, red Rajdhani logo, yellow
+  chamfered start button; enlarged to 600×448 so the help text fits.
+- **Minimap/big map**: near-black blue, cyan road lines, yellow diamond
+  kiosks, red diamond objective, cyan-outlined player arrow, red tick.
+- **Joystick**: dark disc, cyan rings, red diagonal ticks; feel pass —
+  0.12 deadzone + 1.35 power curve on the stick output.
+- **Fonts**: Rajdhani Bold (OFL) ships in a ModelBlob .tres like the
+  models (font_loader.gd); used for Latin/digits, M PLUS 1p keeps
+  Japanese. Rajdhani is the recognised stand-in for the game's
+  Blender Pro UI typeface.
+- **Look feel**: player and car cameras ease toward input targets
+  (20/s and 16/s) instead of snapping — weight without lag.

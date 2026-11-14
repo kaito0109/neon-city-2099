@@ -67,8 +67,11 @@ func _physics_process(_delta: float) -> bool:
 				_ok(moved > 8.0, "GAS thrust moves the car in flight (moved %.1f m)" % moved)
 				_ok(bool(car.get("flying")), "still flying after thrust")
 				main.set("touch_drive", Vector2.ZERO)
-				# Move over the expressway deck and descend onto it.
-				(car as Node3D).global_position = Vector3(0.0, 16.0, 40.0)
+				# Move over the skyway deck and descend onto it
+				# (v4: the deck is the curved skyway; take a point
+				# from the world's own deck loop).
+				var dp: Vector3 = (main.get("city").get("deck_loop") as Array)[3]
+				(car as Node3D).global_position = Vector3(dp.x, 16.0, dp.z)
 				car.set("velocity", Vector3.ZERO)
 				car.set("speed", 0.0)
 				main.set("touch_vertical", -1.0)  # stick down: descend
@@ -77,7 +80,7 @@ func _physics_process(_delta: float) -> bool:
 		4:
 			if not bool(car.get("flying")):
 				var y: float = (car as Node3D).global_position.y
-				_ok(y > 9.0 and y < 12.0, "landed ON the expressway deck (y %.1f)" % y)
+				_ok(y > 9.0 and y < 12.0, "landed ON the skyway deck (y %.1f)" % y)
 				main.set("touch_vertical", 0.0)
 				print("V18 TEST DONE")
 				quit(1 if failed else 0)

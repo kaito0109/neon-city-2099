@@ -228,7 +228,7 @@ def build_geometry():
                 # up=True is load-bearing: a flipped bank quad reads
                 # as a ceiling to move_and_slide and traps cars under
                 # the sheet (found by the v24 climb test).
-                add_quad(a0, a1, b1, b0, "WallMat", up=True)
+                add_quad(a0, a1, b1, b0, "BankMat", up=True)
     # Plaza.
     flat_quad(-34, -34, 34, 34, 0.06, "PlazaMat")
     # Canal: floor, water, bank walls, promenades.
@@ -438,7 +438,7 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats = {}
     for name in ("GroundMat", "RoadMat", "SideMat", "PlazaMat", "WaterMat",
-                 "WallMat", "DeckMat", "LineMat", "ApronMat"):
+                 "WallMat", "DeckMat", "LineMat", "ApronMat", "BankMat"):
         m = bpy.data.materials.new(name)
         m.use_nodes = True
         mats[name] = m

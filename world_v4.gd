@@ -29,6 +29,7 @@ func build(font: Font) -> void:
 	_rng.seed = 4242
 	_font = font
 	_make_materials()
+	_mat_pool.albedo_color = Color(0.35, 0.6, 0.85, 0.15)
 	_make_bld_materials()
 	_layout = LayoutV4.DATA
 	_build_terrain()
@@ -130,6 +131,8 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 			m.emission_energy_multiplier = 0.35
 		"WallMat":
 			m = _pbr_ground("concrete", Vector3(0.25, 0.5, 0.5), Color(0.55, 0.54, 0.50), 0.8, 0.6, false)
+		"BankMat":
+			m = _pbr_ground("cracked", Vector3.ONE / 3.5, Color(0.50, 0.49, 0.45), 1.25, 1.2, true)
 		"DeckMat":
 			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.46, 0.45, 0.42), 0.9, 0.7, true)
 		"LineMat":
@@ -140,9 +143,22 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 	_terrain_mat_cache[name] = m
 	return m
 
+var _disc_mat: StandardMaterial3D
+
 func _apply_terrain_mats(n: Node) -> void:
 	if n is MeshInstance3D:
 		var mi := n as MeshInstance3D
+		if mi.name == "PlazaDisc":
+			# The holo plinth shipped with LineMat (pale) and read
+			# as a white ellipse on the plaza (his photo 4). Make
+			# it the dark metal base it was meant to be.
+			if _disc_mat == null:
+				_disc_mat = StandardMaterial3D.new()
+				_disc_mat.albedo_color = Color(0.04, 0.05, 0.07)
+				_disc_mat.metallic = 0.55
+				_disc_mat.roughness = 0.35
+				_disc_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mi.material_override = _disc_mat
 		if mi.mesh != null:
 			for i in range(mi.mesh.get_surface_count()):
 				var sm: Material = mi.mesh.surface_get_material(i)
@@ -174,7 +190,7 @@ func _build_collision() -> void:
 	body.name = "TerrainBody"
 	add_child(body)
 	var step: float = 4.0
-	var ext: float = 232.0
+	var ext: float = 244.0
 	var n: int = int(ext * 2.0 / step) + 1
 	var faces := PackedVector3Array()
 	var grid: Array = []
@@ -613,6 +629,16 @@ func _build_roof_multimeshes() -> void:
 ## v4 skyline: same ring of backdrop mega-towers as city.gd's, but
 ## grouped into one MultiMesh per window material (was ~70 nodes,
 ## and the antennas/beacons are sub-pixel at 425 m+ — dropped).
+var _skyline_dark: Dictionary = {}
+
+func _build_searchlights() -> void:
+	# v4.2: the v2.3 searchlight cones read as geometry errors on
+	# the authored terrain (a bright wedge/disc where the tilted
+	# additive cone crosses the view — his iPhone photo 4 and the
+	# v47 bisect). Cut for v4; the city's light comes from signs,
+	# lamps and screens instead.
+	pass
+
 func _build_skyline_v4() -> void:
 	var by_mat: Dictionary = {}
 	var cornice_xf: Array[Transform3D] = []
@@ -626,16 +652,22 @@ func _build_skyline_v4() -> void:
 		var h: float = _rng.randf_range(55.0, 165.0)
 		if idx % 9 == 4:
 			h = _rng.randf_range(180.0, 235.0)
-		var wm: StandardMaterial3D = _window_mats[_rng.randi() % _window_mats.size()]
+		var src_wm: StandardMaterial3D = _window_mats[_rng.randi() % _window_mats.size()]
+		if not _skyline_dark.has(src_wm):
+			var dm: StandardMaterial3D = src_wm.duplicate()
+			dm.albedo_color = Color(0.30, 0.34, 0.42)
+			_skyline_dark[src_wm] = dm
+		var wm: StandardMaterial3D = _skyline_dark[src_wm]
 		var rot: float = _rng.randf() * PI
 		var xf := Transform3D(Basis.from_euler(Vector3(0, rot, 0)) * Basis.from_scale(Vector3(w, h, w)), Vector3(pos.x, h * 0.5, pos.z))
 		if not by_mat.has(wm):
 			by_mat[wm] = []
 		(by_mat[wm] as Array).append(xf)
-		if _rng.randf() < 0.35:
+		if _rng.randf() < 0.22:
 			var nm: StandardMaterial3D = _neon_mats[_rng.randi() % _neon_mats.size()]
 			cornice_xf.append(Transform3D(Basis.from_euler(Vector3(0, rot, 0)) * Basis.from_scale(Vector3(w + 0.6, 0.5, w + 0.6)), Vector3(pos.x, h + 0.3, pos.z)))
-			cornice_col.append(nm.albedo_color)
+			var nc: Color = nm.albedo_color
+			cornice_col.append(Color(nc.r * 0.65, nc.g * 0.65, nc.b * 0.65))
 		ang += _rng.randf_range(0.10, 0.17)
 		idx += 1
 	var unit := BoxMesh.new()
@@ -809,10 +841,10 @@ func _build_boundary_v4() -> void:
 	body.name = "BoundaryV4"
 	add_child(body)
 	for spec in [
-		[Vector3(4, 80, 480), Vector3(237, 40, 0)],
-		[Vector3(4, 80, 480), Vector3(-237, 40, 0)],
-		[Vector3(480, 80, 4), Vector3(0, 40, 237)],
-		[Vector3(480, 80, 4), Vector3(0, 40, -237)],
+		[Vector3(4, 150, 496), Vector3(237, 62, 0)],
+		[Vector3(4, 150, 496), Vector3(-237, 62, 0)],
+		[Vector3(496, 150, 4), Vector3(0, 62, 237)],
+		[Vector3(496, 150, 4), Vector3(0, 62, -237)],
 	]:
 		var cs := CollisionShape3D.new()
 		var sh := BoxShape3D.new()
@@ -920,7 +952,7 @@ func _build_streaks_v4() -> void:
 		var basis := Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(wid, 1, len_))
 		xforms.append(Transform3D(basis, c))
 		var col: Color = spot["color"]
-		colors.append(Color(col.r * 0.5, col.g * 0.5, col.b * 0.5))
+		colors.append(Color(col.r * 0.36, col.g * 0.36, col.b * 0.36))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -1014,7 +1046,7 @@ func _build_lamps_v4() -> void:
 	pm.size = Vector2(13, 13)
 	var warm_pool := StandardMaterial3D.new()
 	warm_pool.albedo_texture = _glow_tex
-	warm_pool.albedo_color = Color(1.0, 0.62, 0.30, 0.30)
+	warm_pool.albedo_color = Color(1.0, 0.62, 0.30, 0.16)
 	warm_pool.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	warm_pool.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	warm_pool.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -1248,7 +1280,7 @@ func _build_blade_signs_v4() -> void:
 				pp.y = _terrain_height(pp.x, pp.z) + 0.13
 				pool_xf.append(Transform3D(Basis.from_scale(Vector3(5.5, 1, 5.5)), pp))
 				var cc: Color = cols[key]
-				pool_col.append(Color(cc.r, cc.g, cc.b, 0.20))
+				pool_col.append(Color(cc.r, cc.g, cc.b, 0.11))
 	var unit_box := BoxMesh.new()
 	for key in groups.keys():
 		_scatter_mm("BladeSigns_" + key, groups[key], [], unit_box, mats[key], 175.0)

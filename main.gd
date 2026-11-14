@@ -67,7 +67,10 @@ func _ready() -> void:
 	add_child(hud)
 	hud.set("main", self)
 	hud.set("player", player)
-	hud.call("build", game_font)
+	var latin_font: Font = FontLoader.load_font(
+		"res://assets/fonts/Rajdhani-Bold.ttf",
+		"res://assets/font_data/rajdhani_bold.tres")
+	hud.call("build", game_font, latin_font)
 	hud.call("show_panel", "NEON CITY 2099",
 		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、GAS/BRK（W/S）で前後、左スティック上下（Space/Shift）で昇降\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。",
 		"スタート")
@@ -469,6 +472,20 @@ func _die() -> void:
 	player.global_position = CLINIC_POS + Vector3(0, 0.5, 0)
 	hud.call("show_center_message", "クローン再生… 治療費 €$%d" % fee)
 
+func _rescue_fallout() -> void:
+	var car: Node3D = player.get("in_car")
+	if car != null:
+		car.global_position = CLINIC_POS + Vector3(0, 1.2, 6)
+		car.rotation = Vector3.ZERO
+		if car is CharacterBody3D:
+			(car as CharacterBody3D).velocity = Vector3.ZERO
+		if bool(car.get("flying")) and car.has_method("toggle_flight"):
+			car.call("toggle_flight")
+	player.global_position = CLINIC_POS + Vector3(0, 0.5, 0)
+	if player is CharacterBody3D:
+		(player as CharacterBody3D).velocity = Vector3.ZERO
+	hud.call("toast", "信号ロスト… クリニック前に再配置")
+
 # --- Per-frame ---
 
 func _process(delta: float) -> void:
@@ -480,6 +497,12 @@ func _process(delta: float) -> void:
 	hud.call("set_stats", float(player.get("hp")), money, wanted, "%02d:%02d" % [hh, mm])
 	_hit_cd = maxf(0.0, _hit_cd - delta)
 	if not started:
+		return
+	# Safety net: if anything ever slips out of the world (a seam,
+	# a physics tunnelling frame), put the player back at the
+	# clinic instead of falling forever (his iPhone photo, v4.1).
+	if player.global_position.y < -8.0:
+		_rescue_fallout()
 		return
 	_update_mission(delta)
 	_update_wanted(delta)

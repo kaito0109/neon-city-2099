@@ -15,6 +15,7 @@ var _body: Node3D
 var _ap: AnimationPlayer
 var _standing: bool = false
 var _cull_t: float = 0.0
+var _sep_t: float = 0.0
 var _rng := RandomNumberGenerator.new()
 var _player_ref: Node3D
 
@@ -46,7 +47,8 @@ func _limit_vis(node: Node) -> void:
 	_body.scale *= j
 	_ap = People.find_ap(_body)
 	if _standing:
-		global_position = _corners[_rng.randi() % 4] + Vector3(0, 0.27, 0)
+		var e: int = _rng.randi() % 4
+		global_position = _corners[e].lerp(_corners[(e + 1) % 4], _rng.randf()) + Vector3(0, 0.27, 0)
 		rotation.y = _rng.randf() * TAU
 		if _ap != null:
 			var start: int = _rng.randi() % STANDING_CLIPS.size()
@@ -56,9 +58,9 @@ func _limit_vis(node: Node) -> void:
 			_ap.speed_scale = _rng.randf_range(0.85, 1.1)
 			_ap.seek(_rng.randf() * 2.0)
 	else:
-		_wp = _rng.randi() % 4
-		global_position = _corners[_wp] + Vector3(0, 0.27, 0)
-		_wp = (_wp + 1) % 4
+		var e2: int = _rng.randi() % 4
+		global_position = _corners[e2].lerp(_corners[(e2 + 1) % 4], _rng.randf()) + Vector3(0, 0.27, 0)
+		_wp = (e2 + 1) % 4
 		_speed = _rng.randf_range(1.1, 2.1)
 		if _ap != null:
 			People.play(_ap, "Walk")
@@ -91,6 +93,19 @@ func _process(delta: float) -> void:
 			var d2: float = away.length_squared()
 			if d2 < 0.42 and d2 > 0.0001:
 				global_position += away.normalized() * (0.65 - sqrt(d2)) * clampf(delta * 9.0, 0.0, 1.0)
+	if _standing and not _down:
+		_sep_t -= delta
+		if _sep_t <= 0.0:
+			_sep_t = 0.3
+			for other in get_tree().get_nodes_in_group("npcs"):
+				if other == self:
+					continue
+				var o := other as Node3D
+				var away: Vector3 = global_position - o.global_position
+				away.y = 0.0
+				var d2: float = away.length_squared()
+				if d2 < 0.64 and d2 > 0.0001:
+					global_position += away.normalized() * 0.12
 	# Distance-cull animation playback (not the walk logic).
 	_cull_t -= delta
 	if _cull_t <= 0.0 and _ap != null and not _down:
