@@ -44,6 +44,9 @@ func build(font: Font) -> void:
 	_build_boundary_v4()
 	_compute_routes()
 	_build_atmosphere()
+	_build_plinth_v4()
+	_build_plaza_marks()
+	_build_air_traffic()
 
 ## Dawn sky override: at 3:52 AM there are no visible stars — the
 ## pale light-polluted sky swallows them. Keep only a faint moon.
@@ -143,23 +146,17 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 	_terrain_mat_cache[name] = m
 	return m
 
-var _disc_mat: StandardMaterial3D
-
 func _apply_terrain_mats(n: Node) -> void:
 	if n is MeshInstance3D:
 		var mi := n as MeshInstance3D
 		if mi.name == "PlazaDisc":
 			# The holo plinth shipped with LineMat (pale) and read
-			# as a white ellipse on the plaza (his photo 4). Make
-			# it the dark metal base it was meant to be.
-			if _disc_mat == null:
-				_disc_mat = StandardMaterial3D.new()
-				_disc_mat.albedo_color = Color(0.04, 0.05, 0.07)
-				_disc_mat.metallic = 0.55
-				_disc_mat.roughness = 0.35
-				_disc_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-			mi.material_override = _disc_mat
-		if mi.mesh != null:
+			# as a white ellipse on device; a flat-black override
+			# then read as a hole. Give it the plaza's own
+			# concrete PBR (v4.3) — the cyan ring dressing is
+			# added in _build_plinth_v4.
+			mi.material_override = _terrain_mat("PlazaMat")
+		elif mi.mesh != null:
 			for i in range(mi.mesh.get_surface_count()):
 				var sm: Material = mi.mesh.surface_get_material(i)
 				if sm != null:
@@ -1043,10 +1040,10 @@ func _build_lamps_v4() -> void:
 	sm.height = 0.64
 	_scatter_mm("LampBulbs", bulb_xf, [], sm, bulb_mat)
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(13, 13)
+	pm.size = Vector2(10.5, 10.5)
 	var warm_pool := StandardMaterial3D.new()
-	warm_pool.albedo_texture = _glow_tex
-	warm_pool.albedo_color = Color(1.0, 0.62, 0.30, 0.16)
+	warm_pool.albedo_texture = _soft_pool_texture()
+	warm_pool.albedo_color = Color(1.0, 0.62, 0.30, 0.13)
 	warm_pool.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	warm_pool.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	warm_pool.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -1287,7 +1284,7 @@ func _build_blade_signs_v4() -> void:
 	if not pool_xf.is_empty():
 		var pmat := StandardMaterial3D.new()
 		pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		pmat.albedo_texture = _glow_tex
+		pmat.albedo_texture = _soft_pool_texture()
 		pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		pmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		pmat.vertex_color_use_as_albedo = true
@@ -1425,3 +1422,215 @@ func _build_cables_v4() -> void:
 	cmat.albedo_color = Color(0.03, 0.03, 0.045)
 	cmat.roughness = 0.9
 	_scatter_mm("Cables", xf, [], BoxMesh.new(), cmat, 200.0)
+
+# ------------------------------------------------------------------
+# v4.3: device-photo PDCA — softer pools, a designed plaza plinth,
+# painted plaza markings, and air traffic for the aerial view.
+# ------------------------------------------------------------------
+
+var _soft_pool_tex: ImageTexture
+
+## Steeper falloff than the shared glow texture: on device, pools
+## rendered as hard-edged discs; pow 3 keeps a visible core but the
+## rim melts into the ground.
+func _soft_pool_texture() -> ImageTexture:
+	if _soft_pool_tex != null:
+		return _soft_pool_tex
+	var s: int = 128
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var center: float = (s - 1) * 0.5
+	for y in range(s):
+		for x in range(s):
+			var d: float = Vector2(x - center, y - center).length() / center
+			var a: float = pow(clampf(1.0 - d, 0.0, 1.0), 3.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	_soft_pool_tex = ImageTexture.create_from_image(img)
+	return _soft_pool_tex
+
+func _build_plinth_v4() -> void:
+	var holder := Node3D.new()
+	holder.name = "PlazaPlinth"
+	add_child(holder)
+	var cyan := StandardMaterial3D.new()
+	cyan.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cyan.albedo_color = Color(0.25, 0.85, 1.0)
+	var ring := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = 6.8
+	tor.outer_radius = 7.25
+	ring.mesh = tor
+	ring.material_override = cyan
+	ring.position = Vector3(0, 0.21, 0)
+	holder.add_child(ring)
+	var plate := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 5.5
+	cyl.bottom_radius = 5.5
+	cyl.height = 0.12
+	plate.mesh = cyl
+	plate.material_override = _mat_dark_metal
+	plate.position = Vector3(0, 0.17, 0)
+	holder.add_child(plate)
+	var ring2 := MeshInstance3D.new()
+	var tor2 := TorusMesh.new()
+	tor2.inner_radius = 5.3
+	tor2.outer_radius = 5.55
+	ring2.mesh = tor2
+	var cyan_dim := StandardMaterial3D.new()
+	cyan_dim.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cyan_dim.albedo_color = Color(0.12, 0.45, 0.58)
+	ring2.material_override = cyan_dim
+	ring2.position = Vector3(0, 0.24, 0)
+	holder.add_child(ring2)
+	# Bollard lights around the plinth.
+	var bol_xf: Array[Transform3D] = []
+	var bulb_xf: Array[Transform3D] = []
+	for i in range(6):
+		var a: float = float(i) * TAU / 6.0 + 0.26
+		var p := Vector3(cos(a) * 9.6, 0.06, sin(a) * 9.6)
+		bol_xf.append(Transform3D(Basis.from_scale(Vector3(1, 0.85, 1)),
+			p + Vector3(0, 0.43, 0)))
+		bulb_xf.append(Transform3D(Basis.from_scale(Vector3(0.55, 0.4, 0.55)),
+			p + Vector3(0, 0.92, 0)))
+	var bol_mesh := CylinderMesh.new()
+	bol_mesh.top_radius = 0.09
+	bol_mesh.bottom_radius = 0.11
+	bol_mesh.height = 1.0
+	_scatter_mm("PlinthBollards", bol_xf, [], bol_mesh, _mat_dark_metal, 130.0)
+	var sm := SphereMesh.new()
+	sm.radius = 0.32
+	sm.height = 0.64
+	_scatter_mm("PlinthBulbs", bulb_xf, [], sm, cyan, 130.0)
+	# Benches + planters on the plaza rim fill the empty square.
+	var bench_xf: Array[Transform3D] = []
+	for i in range(8):
+		var a2: float = float(i) * TAU / 8.0 + 0.39
+		var bp := Vector3(cos(a2) * 25.5, 0.06, sin(a2) * 25.5)
+		var rot := Basis(Vector3.UP, -a2 + PI * 0.5)
+		bench_xf.append(Transform3D(rot.scaled(Vector3(2.2, 0.4, 0.5)),
+			bp + Vector3(0, 0.2, 0)))
+		bench_xf.append(Transform3D(rot.scaled(Vector3(2.3, 0.1, 0.62)),
+			bp + Vector3(0, 0.45, 0)))
+		var back_off: Vector3 = (rot * Vector3(0, 0, 0.28))
+		bench_xf.append(Transform3D(rot.scaled(Vector3(2.3, 0.55, 0.1)),
+			bp + Vector3(0, 0.72, 0) + back_off))
+	# Concrete, not near-black metal: in the cycle-2 shot the dark
+	# metal benches read as featureless black cubes.
+	var bench_mat := StandardMaterial3D.new()
+	bench_mat.albedo_color = Color(0.32, 0.33, 0.36)
+	bench_mat.roughness = 0.9
+	_scatter_mm("PlazaBenches", bench_xf, [], BoxMesh.new(), bench_mat, 130.0)
+	var plant_xf: Array[Transform3D] = []
+	var leaf_xf: Array[Transform3D] = []
+	for i in range(4):
+		var a3: float = float(i) * TAU / 4.0
+		var pp := Vector3(cos(a3) * 23.0, 0.06, sin(a3) * 23.0)
+		var rot3 := Basis(Vector3.UP, -a3 + PI * 0.5)
+		plant_xf.append(Transform3D(rot3.scaled(Vector3(3.4, 0.8, 1.1)),
+			pp + Vector3(0, 0.4, 0)))
+		leaf_xf.append(Transform3D(rot3.scaled(Vector3(3.1, 0.4, 0.85)),
+			pp + Vector3(0, 0.95, 0)))
+	_scatter_mm("PlazaPlanters", plant_xf, [], BoxMesh.new(), _mat_dark_metal, 130.0)
+	var leaf_mat := StandardMaterial3D.new()
+	leaf_mat.albedo_color = Color(0.05, 0.15, 0.11)
+	leaf_mat.roughness = 1.0
+	_scatter_mm("PlazaLeaves", leaf_xf, [], BoxMesh.new(), leaf_mat, 130.0)
+
+func _build_plaza_marks() -> void:
+	var tex: Texture2D = TextureLoader.load_tex(
+		"res://assets/textures/plaza_marks.jpg",
+		"res://assets/texture_data/plaza_marks.tres")
+	if tex == null:
+		return
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_texture = tex
+	m.albedo_color = Color(0.78, 0.78, 0.78, 1.0)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(67, 67)
+	mi.mesh = pm
+	mi.material_override = m
+	mi.position = Vector3(0, 0.085, 0)
+	mi.name = "PlazaMarks"
+	add_child(mi)
+
+var _air: Array = []
+
+func _build_air_traffic() -> void:
+	var body_mat := StandardMaterial3D.new()
+	body_mat.albedo_color = Color(0.05, 0.06, 0.09)
+	body_mat.metallic = 0.6
+	body_mat.roughness = 0.4
+	var strip_mat := StandardMaterial3D.new()
+	strip_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	strip_mat.albedo_color = Color(0.45, 0.9, 1.0)
+	var tail_mat := StandardMaterial3D.new()
+	tail_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tail_mat.albedo_color = Color(1.0, 0.25, 0.3)
+	var trail_mat := StandardMaterial3D.new()
+	trail_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	trail_mat.albedo_color = Color(0.2, 0.7, 0.9, 0.17)
+	trail_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	trail_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var lanes: Array = [
+		[Vector3(-275, 37, -58), Vector3(275, 37, -58), 26.0],
+		[Vector3(86, 45, 275), Vector3(86, 45, -275), 31.0],
+		[Vector3(275, 30, 148), Vector3(-275, 30, 148), 22.0],
+	]
+	for li in range(lanes.size()):
+		var from: Vector3 = lanes[li][0]
+		var to: Vector3 = lanes[li][1]
+		var dir: Vector3 = (to - from).normalized()
+		var span: float = (to - from).length()
+		for k in range(3):
+			var root := Node3D.new()
+			root.name = "AirAV"
+			var body := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(2.1, 1.0, 4.8)
+			body.mesh = bm
+			body.material_override = body_mat
+			root.add_child(body)
+			var strip := MeshInstance3D.new()
+			var sm2 := BoxMesh.new()
+			sm2.size = Vector3(2.14, 0.32, 2.2)
+			strip.mesh = sm2
+			strip.material_override = strip_mat
+			strip.position = Vector3(0, 0.12, -0.9)
+			root.add_child(strip)
+			var tail := MeshInstance3D.new()
+			var tm := BoxMesh.new()
+			tm.size = Vector3(2.14, 0.22, 0.3)
+			tail.mesh = tm
+			tail.material_override = tail_mat
+			tail.position = Vector3(0, 0.1, 2.4)
+			root.add_child(tail)
+			var trail := MeshInstance3D.new()
+			var trm := BoxMesh.new()
+			trm.size = Vector3(0.55, 0.05, 14.0)
+			trail.mesh = trm
+			trail.material_override = trail_mat
+			trail.position = Vector3(0, 0, 9.7)
+			root.add_child(trail)
+			add_child(root)
+			root.global_position = from
+			root.look_at(from + dir, Vector3.UP)
+			_air.append({
+				"n": root, "from": from, "dir": dir, "span": span,
+				"speed": float(lanes[li][2]) * (0.9 + 0.2 * float(k)),
+				"d": span * (float(k) * 0.34 + 0.13 * float(li)),
+				"ph": randf() * TAU,
+			})
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	for e in _air:
+		e["d"] = fmod(float(e["d"]) + float(e["speed"]) * delta,
+			float(e["span"]))
+		var n := e["n"] as Node3D
+		var p: Vector3 = (e["from"] as Vector3) + (e["dir"] as Vector3) * float(e["d"])
+		p.y += sin(Time.get_ticks_msec() * 0.001 + float(e["ph"])) * 0.35
+		n.global_position = p

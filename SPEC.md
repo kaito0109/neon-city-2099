@@ -621,3 +621,26 @@ Draws unchanged (spawn 1000). All suites pass; Web export OK.
   Blender Pro UI typeface.
 - **Look feel**: player and car cameras ease toward input targets
   (20/s and 16/s) instead of snapping — weight without lag.
+
+## v4.3 — device-photo PDCA (2026-11-15 overnight, his 02:38 photos)
+His new device photos showed: the plinth now read as a BLACK hole,
+the headlight cone as a solid white teardrop (worst in flight), car
+underglow as a hard cyan ellipse, lamp pools still disc-like, and
+the aerial view flat/empty. Fixes, verified over two Xvfb PDCA
+cycles (tests/v48_shot.gd):
+- Cone: peak alpha 0.22→0.075, falloff pow 2.2, shorter (6.5 m,
+  r 1.2); hidden while flying (per-frame visibility rule in car
+  physics). SpotLight 2.2→1.6; underglow Omni 0.7→0.4, range 3.4.
+- Plinth: PlazaDisc takes the plaza concrete PBR; added a cyan
+  torus ring + dark plate + inner ring + 6 bollard lights
+  (_build_plinth_v4).
+- Pools: new _soft_pool_texture (pow-3 falloff) for lamp and sign
+  pools; lamp pools 13 m→10.5 m, alpha 0.16→0.13.
+- Plaza dressing: painted ground markings (additive JPG
+  plaza_marks: rings, spokes, ticks, corner hazards, worn),
+  8 benches (concrete), 4 planters.
+- Air traffic: 3 lanes × 3 AVs (dark hull, cyan window strip, red
+  tail, additive trail) animated in world_v4._process — the sky
+  is alive from the ground and from the air.
+- Suites: v15/v18/v20/v21/v24/v42/v43/v44/v45 all green; Web
+  export OK.

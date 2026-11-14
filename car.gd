@@ -49,8 +49,8 @@ func build(color: Color) -> void:
 				_add_box(Vector3(0.22, 0.3, 0.8), Vector3(sx, 0.32, sz), _mat(Color(0.02, 0.02, 0.04), 0.0, 0.6))
 	_glow_light = OmniLight3D.new()
 	_glow_light.light_color = Color(0.1, 0.85, 1.0)
-	_glow_light.light_energy = 0.7
-	_glow_light.omni_range = 4.5
+	_glow_light.light_energy = 0.4  # v4.3: device read it as a hard cyan ellipse
+	_glow_light.omni_range = 3.4
 	_glow_light.position.y = 0.4
 	_body.add_child(_glow_light)
 	# Driver camera rig.
@@ -75,9 +75,9 @@ func build(color: Color) -> void:
 	# Fake volumetric headlight cone (additive gradient cylinder, front = -Z).
 	_cone = MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.16
-	cyl.bottom_radius = 1.7
-	cyl.height = 8.6
+	cyl.top_radius = 0.14
+	cyl.bottom_radius = 1.2
+	cyl.height = 6.5
 	_cone.mesh = cyl
 	var cm := StandardMaterial3D.new()
 	cm.albedo_texture = _cone_texture()
@@ -87,7 +87,7 @@ func build(color: Color) -> void:
 	cm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	cm.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_cone.material_override = cm
-	_cone.position = Vector3(0, 0.78, -6.45)
+	_cone.position = Vector3(0, 0.78, -5.3)
 	_cone.rotation_degrees.x = 90.0
 	_cone.visible = false
 	_body.add_child(_cone)
@@ -97,7 +97,10 @@ func _cone_texture() -> ImageTexture:
 	var img := Image.create(8, 64, false, Image.FORMAT_RGBA8)
 	for y in range(64):
 		var v: float = 1.0 - float(y) / 63.0
-		var a: float = pow(v, 1.6) * 0.22
+		# v4.3: on real devices the additive cone blew out into a
+		# solid white teardrop (his 2026-11-15 02:38 photos). Peak
+		# alpha more than halved and the falloff steepened.
+		var a: float = pow(v, 2.2) * 0.075
 		img.fill_rect(Rect2i(0, y, 8, 1), Color(1, 1, 1, a))
 	return ImageTexture.create_from_image(img)
 
@@ -184,7 +187,7 @@ func set_driven(on: bool) -> void:
 		_slope_roll = 0.0
 		rotation.x = 0.0
 		rotation.z = 0.0
-	_headlight.light_energy = 2.2 if on else 0.0
+	_headlight.light_energy = 1.6 if on else 0.0
 	if _cone != null:
 		_cone.visible = on
 	if on and _camera != null:
@@ -239,6 +242,12 @@ func set_traffic(block_center: Vector3, half: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_bob_t += delta
+	# v4.3: no headlight cone while flying — in the air it read as
+	# a searchlight teardrop hanging off the car (device photos).
+	if _cone != null:
+		var want_cone: bool = mode == "traffic" or (mode == "driven" and not flying)
+		if _cone.visible != want_cone:
+			_cone.visible = want_cone
 	if mode == "driven":
 		_drive(delta)
 	elif mode == "traffic":

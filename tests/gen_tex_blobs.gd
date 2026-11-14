@@ -11,6 +11,7 @@ const PAIRS: Array = [
 	["res://assets/textures/asphalt_ao.jpg", "res://assets/texture_data/asphalt_ao.tres"],
 	["res://assets/textures/asphalt_disp.jpg", "res://assets/texture_data/asphalt_disp.tres"],
 	["res://assets/textures/concrete_color.jpg", "res://assets/texture_data/concrete_color.tres"],
+	["res://assets/textures/plaza_marks.jpg", "res://assets/texture_data/plaza_marks.tres"],
 	["res://assets/textures/concrete_disp.jpg", "res://assets/texture_data/concrete_disp.tres"],
 	["res://assets/textures/cracked_color.jpg", "res://assets/texture_data/cracked_color.tres"],
 	["res://assets/textures/cracked_normal.jpg", "res://assets/texture_data/cracked_normal.tres"],
