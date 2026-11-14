@@ -32,6 +32,15 @@ func setup(block_center: Vector3, half: float, cast_name: String, rng: RandomNum
 	if _body == null:
 		_body = Node3D.new()
 	add_child(_body)
+	# v4 optimization: a pedestrian is a few pixels tall past ~85 m;
+	# stop drawing NPC meshes beyond that (walk logic continues).
+	_limit_vis(_body)
+
+func _limit_vis(node: Node) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).visibility_range_end = 85.0
+	for ch in node.get_children():
+		_limit_vis(ch)
 	# Slight per-person height variety.
 	var j: float = _rng.randf_range(0.95, 1.05)
 	_body.scale *= j

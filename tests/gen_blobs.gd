@@ -38,6 +38,35 @@ func _initialize() -> void:
 		blob4.data = bytes4
 		var err4: Error = ResourceSaver.save(blob4, "res://assets/kit_data/" + n + ".tres")
 		print("saved kit ", n, " bytes=", bytes4.size(), " err=", err4)
+	# v4 terrain (one authored Blender piece).
+	DirAccess.make_dir_recursive_absolute("res://assets/terrain_data")
+	var tbytes: PackedByteArray = FileAccess.get_file_as_bytes("res://assets/terrain/terrain_v4.glb")
+	if tbytes.is_empty():
+		print("MISSING terrain_v4")
+	else:
+		var tblob := ModelBlob.new()
+		tblob.data = tbytes
+		var terr: Error = ResourceSaver.save(tblob, "res://assets/terrain_data/terrain_v4.tres")
+		print("saved terrain_v4 bytes=", tbytes.size(), " err=", terr)
+	# v4 Phase 2: Blender building variants + heroes.
+	DirAccess.make_dir_recursive_absolute("res://assets/bld_data")
+	var bld_names: Array[String] = []
+	for key in BldManifest.DATA.keys():
+		bld_names.append(String(key))
+		if bool(BldManifest.DATA[key]["far"]):
+			bld_names.append(String(key) + "_far")
+	bld_names.append("hero_mega")
+	bld_names.append("hero_arch")
+	bld_names.append("hero_cyl")
+	for n in bld_names:
+		var bytes5: PackedByteArray = FileAccess.get_file_as_bytes("res://assets/bld/" + n + ".glb")
+		if bytes5.is_empty():
+			print("MISSING bld ", n)
+			continue
+		var blob5 := ModelBlob.new()
+		blob5.data = bytes5
+		var err5: Error = ResourceSaver.save(blob5, "res://assets/bld_data/" + n + ".tres")
+		print("saved bld ", n, " bytes=", bytes5.size(), " err=", err5)
 	var props: Array[String] = ["bench", "trashcan", "dumpster"]
 	DirAccess.make_dir_recursive_absolute("res://assets/props_data")
 	for n in props:

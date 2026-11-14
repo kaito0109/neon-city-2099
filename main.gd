@@ -1,7 +1,7 @@
 extends Node3D
 ## NEON CITY 2099 — orchestration: city, actors, missions, wanted, economy.
 
-const CityScript := preload("res://city.gd")
+const CityScript := preload("res://world_v4.gd")
 const PlayerScript := preload("res://player.gd")
 const CarScript := preload("res://car.gd")
 const NpcScript := preload("res://npc.gd")
@@ -44,7 +44,8 @@ var _marker_mat: StandardMaterial3D
 var _chip: Node3D
 var _gate_ring: MeshInstance3D
 
-const CLINIC_POS := Vector3(4, 0.6, 116)  # on the z=120 road, never inside a block building
+const CLINIC_POS := Vector3(38, 0.6, 20)  # v4: clinic east of the plaza
+const SPAWN_POS := Vector3(0, 0.6, 48)    # v4: plaza south, facing the megabuilding
 
 func _ready() -> void:
 	add_to_group("main")
@@ -55,7 +56,7 @@ func _ready() -> void:
 	add_child(city)
 	city.call("build", game_font)
 	player = PlayerScript.new()
-	player.position = CLINIC_POS
+	player.position = SPAWN_POS
 	add_child(player)
 	player.call("make_camera_current")
 	_spawn_cars()
@@ -80,11 +81,16 @@ func _build_environment() -> void:
 	# v3 (P3): dusk is the hero time — a low warm sun band on the
 	# horizon under an indigo zenith, so sky light and neon read in
 	# the same frame (the game's day AND night identities at once).
-	sky_mat.sky_top_color = Color(0.045, 0.055, 0.13)
-	sky_mat.sky_horizon_color = Color(0.52, 0.27, 0.30)
+	# v4 Phase 2.5 (かいと's reference: CP2077 at 3:52 AM): the sky
+	# is NEVER black in Night City — light pollution keeps it a pale
+	# teal-grey, buildings stand as dark masses against it, and the
+	# light in the scene comes from signs and screens. So: light
+	# sky, cool ambient, denser blue-grey haze.
+	sky_mat.sky_top_color = Color(0.16, 0.24, 0.29)
+	sky_mat.sky_horizon_color = Color(0.58, 0.52, 0.42)
 	sky_mat.sky_curve = 0.10
-	sky_mat.ground_bottom_color = Color(0.012, 0.010, 0.03)
-	sky_mat.ground_horizon_color = Color(0.17, 0.11, 0.19)
+	sky_mat.ground_bottom_color = Color(0.03, 0.035, 0.045)
+	sky_mat.ground_horizon_color = Color(0.23, 0.25, 0.26)
 	sky_mat.ground_curve = 0.08
 	sky_mat.sun_angle_max = 30.0
 	sky_mat.sun_curve = 0.02
@@ -93,25 +99,25 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.44, 0.39, 0.56)
-	env.ambient_light_energy = 1.08
+	env.ambient_light_color = Color(0.48, 0.56, 0.60)
+	env.ambient_light_energy = 1.02
 	env.fog_enabled = true
-	# Coloured fog (warm violet-grey) fuses the layers and melts
-	# distance into haze instead of black.
-	env.fog_light_color = Color(0.215, 0.16, 0.225)
-	env.fog_density = 0.0068
-	env.fog_sky_affect = 0.6
+	# Blue-grey aerial perspective: distance melts into light haze
+	# (the reference's depth cue), not into blackness.
+	env.fog_light_color = Color(0.33, 0.39, 0.43)
+	env.fog_density = 0.0085
+	env.fog_sky_affect = 0.75
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.18
-	env.adjustment_contrast = 1.03
-	env.adjustment_saturation = 1.07
+	env.adjustment_brightness = 1.12
+	env.adjustment_contrast = 1.04
+	env.adjustment_saturation = 1.02
 	we.environment = env
 	add_child(we)
 	var moon := DirectionalLight3D.new()
-	moon.rotation_degrees = Vector3(-38, 35, 0)
-	moon.light_color = Color(1.0, 0.64, 0.44)
-	moon.light_energy = 0.72
+	moon.rotation_degrees = Vector3(-42, 35, 0)
+	moon.light_color = Color(0.62, 0.72, 0.82)
+	moon.light_energy = 0.55
 	moon.shadow_enabled = false
 	add_child(moon)
 
@@ -125,10 +131,12 @@ func _load_font() -> Font:
 	return sf
 
 func _spawn_cars() -> void:
+	# v4 spots sit on the authored roads: ring east/west edges, the SW
+	# diagonal avenue, the N-S main street, and the S2 street.
 	var parked_spots: Array = [
-		[Vector3(64, 0.55, 12), 0.0], [Vector3(-56, 0.55, -104), PI * 0.5],
-		[Vector3(128, 0.55, 64), PI], [Vector3(-122, 0.55, 176), -PI * 0.5],
-		[Vector3(8, 0.55, -176), 0.0],
+		[Vector3(153, 0.55, 30), PI], [Vector3(-153, 0.55, -40), 0.0],
+		[Vector3(-150, 0.55, 142), -0.89], [Vector3(5, 0.55, 100), 0.0],
+		[Vector3(-80, 0.55, 57), PI * 0.5],
 	]
 	# v3 (P1): the first parked car and one traffic colour are the
 	# Cyberpunk-yellow fingerprint; the rest stay varied but muted.
@@ -142,29 +150,33 @@ func _spawn_cars() -> void:
 		car.set("heading", parked_spots[i][1])
 		car.rotation.y = parked_spots[i][1]
 		_cars.append(car)
-	var blocks: Array = city.get("sidewalk_blocks")
+	# v4 street traffic follows the ring-road tours from the layout.
+	var loops: Array = city.get("traffic_loops")
 	for i in range(8):
 		var car2: CharacterBody3D = CarScript.new()
 		car2.add_to_group("cars")
 		add_child(car2)
 		car2.call("build", colors[i % colors.size()] * Color(0.7, 0.7, 0.75))
-		var blk: Dictionary = blocks[_rng.randi() % blocks.size()]
-		car2.call("set_traffic", blk["center"], float(blk["half"]))
+		var lp: Array = loops[i % loops.size()]
+		car2.call("set_traffic_path", lp, 11.0 + float(i % 3) * 2.0)
+		# Stagger the cars around the tour instead of stacking them.
+		var start_idx: int = (i * 7) % lp.size()
+		car2.global_position = (lp[start_idx] as Vector3) + Vector3(0, 0.55, 0)
+		car2.set("_wp", (start_idx + 1) % lp.size())
 		_cars.append(car2)
-	# Expressway traffic: cars shuttle along the elevated deck (kept
-	# out of _cars so street-level interactions never see them).
+	# Skyway traffic: cars tour the elevated deck both ways (kept out
+	# of _cars so street-level interactions never see them).
+	var deck: Array = city.get("deck_loop")
 	for i in range(6):
 		var car3: CharacterBody3D = CarScript.new()
 		add_child(car3)
 		car3.call("build", colors[(i + 2) % colors.size()])
-		var lane: float = -2.8 if i % 2 == 0 else 2.8
-		var dir_z: float = 1.0 if i % 2 == 0 else -1.0
-		var z0: float = -dir_z * (40.0 + float(i) * 42.0)
 		car3.set("mode", "traffic")
-		car3.set("_base_y", 10.05)
-		car3.set("_loop", [Vector3(lane, 0, z0), Vector3(lane, 0, dir_z * 318.0), Vector3(lane, 0, -dir_z * 318.0)])
-		car3.global_position = Vector3(lane, 10.05, z0)
-		car3.set("_wp", 1)
+		car3.set("_base_y", 10.6)
+		car3.set("_loop", deck)
+		var didx: int = (i * 5) % deck.size()
+		car3.global_position = (deck[didx] as Vector3) + Vector3(0, 10.6, 0)
+		car3.set("_wp", (didx + 1) % deck.size())
 		car3.set("speed", 13.0 + float(i % 3) * 2.5)
 		_deck_cars.append(car3)
 
@@ -400,17 +412,25 @@ func _assign_mission() -> void:
 		_race_gates.clear()
 		var cur: Vector3 = player.global_position
 		var used: Array[Vector3] = []
+		# v4: gates come from vetted road points in the layout, each
+		# the nearest unused one at least ~55 m from the previous.
+		var rp: Array = city.get("race_points")
 		for i in range(5):
 			var best := Vector3.ZERO
 			var bd: float = 1e9
-			for k in range(14):
-				var cand := Vector3(_rng.randi_range(-4, 4) * 60.0, 0, _rng.randi_range(-4, 4) * 60.0)
-				if used.has(cand) or cand.distance_to(cur) < 70.0:
+			for cand_v in rp:
+				var cand: Vector3 = cand_v
+				if used.has(cand) or cand.distance_to(cur) < 55.0:
 					continue
 				var d: float = cand.distance_to(cur)
 				if d < bd:
 					bd = d
 					best = cand
+			if bd >= 1e9:  # ran out of distant points: take any unused
+				for cand_v in rp:
+					if not used.has(cand_v):
+						best = cand_v
+						break
 			used.append(best)
 			_race_gates.append(best)
 			cur = best

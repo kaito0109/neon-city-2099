@@ -22,13 +22,22 @@ func _draw() -> void:
 	var player: Node = main.get("player")
 	if city == null or player == null:
 		return
-	# Roads.
-	var n: int = int(city.get("N"))
-	var block: float = float(city.get("BLOCK"))
-	for i in range(-n, n + 1):
-		var c: float = i * block
-		draw_line(_w2m(Vector3(-world_extent, 0, c)), _w2m(Vector3(world_extent, 0, c)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
-		draw_line(_w2m(Vector3(c, 0, -world_extent)), _w2m(Vector3(c, 0, world_extent)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
+	# Roads: v4 draws the authored network from the layout's line
+	# list; the old procedural grid is the fallback.
+	var ext_v: Variant = city.get("map_extent")
+	if ext_v != null:
+		world_extent = float(ext_v)
+	var rl: Array = city.get("road_lines")
+	if not rl.is_empty():
+		for seg in rl:
+			draw_line(_w2m(seg[0]), _w2m(seg[1]), Color(0.25, 0.3, 0.45, 0.8), 1.0)
+	else:
+		var n: int = int(city.get("N"))
+		var block: float = float(city.get("BLOCK"))
+		for i in range(-n, n + 1):
+			var c: float = i * block
+			draw_line(_w2m(Vector3(-world_extent, 0, c)), _w2m(Vector3(world_extent, 0, c)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
+			draw_line(_w2m(Vector3(c, 0, -world_extent)), _w2m(Vector3(c, 0, world_extent)), Color(0.25, 0.3, 0.45, 0.8), 1.0)
 	# Kiosks.
 	for k in city.get("poi_kiosks"):
 		draw_circle(_w2m(k), 2.0, Color(0.3, 0.9, 1.0))

@@ -116,8 +116,17 @@ func _try_blender_model() -> bool:
 	inst.rotation.y = PI
 	inst.name = "HoverCarModel"
 	_tint_body(inst)
+	_limit_vis(inst)
 	_body.add_child(inst)
 	return true
+
+func _limit_vis(node: Node) -> void:
+	# v4 optimization: cars stay visible across a district (they are
+	# gameplay), but not across the whole map.
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).visibility_range_end = 260.0
+	for ch in node.get_children():
+		_limit_vis(ch)
 
 func _tint_body(node: Node) -> void:
 	# Repaint only the BodyPaint surfaces with this car's color; glass,
@@ -170,11 +179,48 @@ func set_driven(on: bool) -> void:
 	mode = "driven" if on else "parked"
 	flying = false
 	speed = 0.0
+	if not on:
+		_slope_pitch = 0.0
+		_slope_roll = 0.0
+		rotation.x = 0.0
+		rotation.z = 0.0
 	_headlight.light_energy = 2.2 if on else 0.0
 	if _cone != null:
 		_cone.visible = on
 	if on and _camera != null:
 		_camera.make_current()
+
+## v4: follow an explicit waypoint tour (ring road / skyway).
+## Points carry y=0; the car hovers at _base_y above them.
+func set_traffic_path(points: Array, spd: float = 11.0) -> void:
+	mode = "traffic"
+	if _cone != null:
+		_cone.visible = true
+	_loop.clear()
+	for p in points:
+		_loop.append(p as Vector3)
+	if _loop.is_empty():
+		return
+	global_position = _loop[0] + Vector3(0, _base_y, 0)
+	_wp = 1 % _loop.size()
+	speed = spd
+
+var _ground_normal: Vector3 = Vector3.UP
+var _slope_pitch: float = 0.0
+var _slope_roll: float = 0.0
+
+## v4: raycast the real ground below (slopes, terraces, bridges) so a
+## driven car follows the authored terrain instead of pinning to a
+## flat-city base height. Returns -9999 when nothing is below.
+func _ground_y_below() -> float:
+	var from: Vector3 = global_position + Vector3(0, 1.2, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, global_position + Vector3(0, -6.0, 0))
+	q.exclude = [get_rid()]
+	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return -9999.0
+	_ground_normal = hit["normal"] as Vector3
+	return float((hit["position"] as Vector3).y)
 
 func set_traffic(block_center: Vector3, half: float) -> void:
 	mode = "traffic"
@@ -304,8 +350,15 @@ func _drive(delta: float) -> void:
 		velocity.z = fwd.z * speed
 		if is_on_floor():
 			velocity.y = -2.0
+			# Probe once per grounded frame (pin + slope alignment).
+			var gy: float = _ground_y_below()
 			if not _roof_landed:
-				global_position.y = move_toward(global_position.y, _base_y, delta * 3.0)
+				# v4: pin toward the probed terrain height (ramps and
+				# terraces), falling back to the flat base on old maps.
+				var pin_y: float = _base_y
+				if gy > -9000.0:
+					pin_y = maxf(_base_y, gy + 0.55)
+				global_position.y = move_toward(global_position.y, pin_y, delta * 8.0)
 		elif global_position.y > _base_y + 1.5:
 			# Airborne without flight (bailed landing, drove off a roof):
 			# real gravity until touchdown.
@@ -313,10 +366,31 @@ func _drive(delta: float) -> void:
 		else:
 			velocity.y = -2.0
 		move_and_slide()
+		# v4: align the body to the ground normal on slopes — a rigid
+		# flat-bottomed box otherwise digs its front edge into a bank
+		# and wedges (the terrace-climb bug). Eases back to flat in
+		# flight / airborne.
+		var target_pitch: float = 0.0
+		var target_roll: float = 0.0
+		if not flying and is_on_floor() and _ground_normal.y > 0.5:
+			var fwd2 := Vector3(-sin(heading), 0, -cos(heading))
+			var right2 := Vector3(cos(heading), 0, -sin(heading))
+			target_pitch = clampf(asin(clampf(-_ground_normal.dot(fwd2), -1.0, 1.0)), -0.5, 0.5)
+			target_roll = clampf(asin(clampf(-_ground_normal.dot(right2), -1.0, 1.0)), -0.5, 0.5)
+		var kk: float = clampf(delta * 6.0, 0.0, 1.0)
+		_slope_pitch = lerpf(_slope_pitch, target_pitch, kk)
+		_slope_roll = lerpf(_slope_roll, target_roll, kk)
+		rotation = Vector3(_slope_pitch, heading, _slope_roll)
 		if is_on_floor() and not _was_floor:
 			_roof_landed = global_position.y > _base_y + 2.0
-		if get_slide_collision_count() > 0 and absf(speed) > 6.0:
-			speed *= 0.55
+		# Crash slowdown only for wall-like hits: on v4's banked ramps
+		# the ground contact itself is a slide collision every frame,
+		# and counting it as a crash capped slope climbs at walking pace.
+		if absf(speed) > 6.0:
+			for ci in range(get_slide_collision_count()):
+				if get_slide_collision(ci).get_normal().y < 0.55:
+					speed *= 0.55
+					break
 	_was_floor = is_on_floor()
 	# Camera pivot is a child of the car, whose root already rotates by
 	# heading — applying heading here too double-rotates the rig (at a

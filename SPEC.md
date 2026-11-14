@@ -406,3 +406,177 @@ Godot 4.6.3 / GDScript で開発し、GitHub Pages で公開、PCとスマート
   readback) 12/12 in GLB AND blob modes; v16 updated to the v3
   fog value + mixed-frontage pool check; v11/v13/v14/v15/v17/
   v18/v19/v21/v22 all pass. Portraits: tests/v29_kitshot.gd.
+
+## v4 Phase 1 — Blender-authored terrain (2026-11-15, NOT pushed)
+- Direction (かいと, 2026-11-15): the 60 m grid city reads nothing
+  like Night City — rebuild the TERRAIN in Blender as one authored
+  piece, assemble assets in Godot, mimic the game UI, optimize for
+  iPhone 16 Pro. Approved plan: density-first 450 m city; Phase 0
+  layout map approved as drawn (design/v4_map.png, v4_layout.md).
+- Terrain (blender/build_terrain_v4.py -> assets/terrain/
+  terrain_v4.glb, 3,046 faces; ships as ModelBlob .tres): ground
+  plates + outer apron, centre plaza 68x68, two diagonal avenues,
+  rounded ring road, S canal (water -2.0, 3 bridges) + market
+  street, NE terraces +6/+12/+18 with switchback road, curved
+  elevated skyway at 10 m deck. Same script exports the layout
+  (layout_v4.gd const — loose .json does not ship in web pck):
+  164 plots (110 kit buildings), heroes (megabuilding 104x56 h110
+  N of plaza, arch building straddling SW avenue, cylinder tower),
+  POIs (5 kiosks, clinic, spawn (0,48) facing the megabuilding),
+  7 NPC walk blocks, traffic/deck loops, race points, pillars.
+- world_v4.gd EXTENDS city.gd and overrides build(): terrain load
+  (mats re-applied by name), plot assembly (v3 kits scaled to
+  irregular plots incl. 45° avenue plots; procedural/photo towers
+  parametric), heroes, POIs, holo, skyline, boundary, routes.
+  main.gd preload switched to world_v4; minimap draws road_lines.
+- Collision = analytic heightfield (4 m grid over +-232, terrace
+  smoothsteps + plaza + canal carve + bridge decks) + deck boxes +
+  pillar cylinders in one StaticBody "TerrainBody". LESSON
+  (minimal repro, ex-tests/v24_miniprobe.gd): Godot physics
+  triangles are front-facing when wound CLOCKWISE seen from the
+  outward side — the RH-rule normal must point INWARD (down for
+  terrain tops) or rays/bodies pass through. Bank gradient capped
+  ~24 deg (BANK_W 20) so cars climb.
+- car.gd: ground-follow raycast + slope pitch/roll alignment;
+  crash-slowdown only on wall-like normals (was capping climbs);
+  traffic runs layout loops via set_traffic_path; deck cars tour
+  the skyway loop.
+- Optimization pass 1: roof caps + cornice strips -> 2 MultiMeshes
+  (MeshInstances 1560 -> 1018 city-wide); skyline -> MultiMesh per
+  window material; tower detail (signs/billboards/labels/antennas)
+  visibility_range_end 170 m; NPC meshes 85 m; cars 260 m.
+  Draw calls (Xvfb): spawn 1284 -> 613, hilltop vista 2785 -> 931,
+  top 2843 -> 751. Street target ~350 not yet met — kit LOD is a
+  later phase; smoothness verdict is the iPhone's.
+- Tests: tests/v24_test.gd 23/23 (terrain, heights probes incl.
+  canal floor -2.7 / deck 10.05 / hilltop 18, car terrace climb
+  driven through the real HUD input path). Shots: v40_shot.gd
+  (top vs approved map, spawn, canal, hills, hilltop). Web export
+  OK locally. v3 remains live; v4 pushes only on かいと's word.
+- NOT yet ported to v4 (later phases): storefront frontage
+  modules, steam, wet streaks, street props, searchlights,
+  facade relief; UI mimic (Cyberpunk-style HUD/menus) is its own
+  phase per the approved plan.
+
+## v4 Phase 2 — Blender-modelled buildings (2026-11-15, NOT pushed)
+- かいと's call: the Phase-1 buildings were still boxes with a
+  mosaic-tile window texture; ALL of them are now replaced by
+  modelled Blender buildings (his explicit Phase 2 mandate).
+- Window textures (blender/paint_windows_v4.py): 6 tileable night
+  facades (ent/kit/mil x a/b lit variants), one tile = 4 windows x
+  4 floors at a FIXED real size (6.8 x 12.4 m). The generator maps
+  wall UVs in metres, so windows are the same size on every face
+  of every building — this, not a new texture, is what kills the
+  mosaic look. Lit windows carry blinds/silhouettes/mullions.
+- Generator (blender/build_buildings_v4.py): 22 archetypes
+  (3 styles x low/mid/high + ent/mil towers, a/b seeds), authored
+  in Godot coords from a quad accumulator: podium with glass
+  storefront band + sign board, shaft with setbacks (2 tiers on
+  high, 3 on towers, floor-quantised heights 3.4 + n*3.1), floor
+  slab rings, crown slab (+glow strip), rooftop clutter (AC, water
+  tank on ent, antennas), style geometry — ENT face AC units +
+  corner pipes + shutter, KIT rounded corner columns + balcony
+  slabs + disc sign + yellow roof band, MIL vertical fins +
+  entrance canopy + vertical sign. Mid/high/tower also emit a
+  massing-only *_far.glb for the LOD swap (near <140 m, far >135).
+- Heroes rebuilt as models too: hero_mega (3 mil-glass tiers,
+  courtyard glow frame, yellow cornice + sign board; the
+  "キバラ・ワン" Label3D stays in Godot above the board),
+  hero_arch (ent legs/slab + cyan under-glow), hero_cyl (wrapped
+  mil drum + balcony rings). Godot colliders unchanged (solid
+  boxes / cylinder via _solid()).
+- Integration (world_v4.gd): _make_bld_materials (unshaded window
+  mats via TextureLoader, texture_repeat is a BOOL in Godot 4.6),
+  _apply_bld_mats by glTF material name, _place_building_v4 picks
+  the closest-height archetype per plot (stable position hash for
+  a/b), local-space collider (fixes the Phase-1 double-scale
+  quirk), LOD pair placement. Blobs: assets/bld_data/*.tres (41),
+  textures via gen_tex_blobs. _place_kit_v4 removed;
+  _add_tower_v4 remains only as a load-failure fallback.
+- Verification: v24 23/23 (unchanged contract), new v42 5/5
+  (164 model buildings, 93 far LOD twins, 3 hero models).
+  Portraits v41 (style row on the plaza: frames/blinds/fins/disc
+  sign all read; mosaic gone), street shots v40 re-taken.
+  Census: MeshInstance3D 1018 -> 797 (models are single meshes).
+  Draw calls (Xvfb): spawn 778 (Phase 1: 613 — real models cost
+  ~+27% at street level; still -39% vs the unoptimised v4 build),
+  canal 133, hills 524, hilltop 1186. Web export OK locally.
+  iPhone smoothness verdict still pending (needs the v4 push,
+  which happens only on かいと's word).
+
+## v4 Phase 2.5 — atmosphere & texture finishing (built 2026-11-15, NOT pushed)
+Direction from かいと: match the ATMOSPHERE of his CP2077
+references (3:52 AM street + daylight street). Core insight: in
+Night City the sky is never black (light-polluted pale teal-grey),
+buildings are dark masses, and light comes from signs/screens/
+lamps — v4 had it inverted (dark sky, uniformly glowing windows).
+- Grade (main._build_environment): sky top (0.16,0.24,0.29),
+  horizon (0.58,0.52,0.42); ambient cool (0.48,0.56,0.60)x1.02;
+  fog blue-grey (0.33,0.39,0.43) density 0.0085, sky_affect 0.75;
+  directional cool (0.62,0.72,0.82)x0.55; tonemap 1.12/1.04/1.02.
+  world_v4 overrides _build_sky: no stars at dawn, faint moon.
+- Window textures repainted (paint_windows_v4 v2): walls darker
+  (ent base 104->72, kit 148->100), lit ratios ent ~22% / kit ~26%
+  (dimmer tints) / mil ~15%. Buildings read as dark masses.
+- Baked per-face shading: generator assigns window materials by
+  face (+Z full, +-X "S" x0.74, -Z "B" x0.52; +12 material names,
+  Godot tint variants share the texture). Kills the
+  four-identical-posters look without light-colour contamination.
+- Street light (world_v4._build_atmosphere): 164 additive wet
+  streaks at building fronts (district colours), street lamps
+  along roads + plaza perimeter/inner (115 total: pole/bulb/pool
+  MultiMeshes, warm pools 13m), 28 steam vents (city _steam +
+  inherited _process animation; sprites culled at 95m), 6 gantry
+  sign bridges across avenues + NS main (billboard board, brand
+  Label3D both sides, under-glow strip, post colliders, culled
+  260m). Terrain albedos raised (dawn streets are mid-grey).
+- Mega face: 27x11.5 ad screen + pink/cyan vertical sign strips
+  + plaza light pool on the spawn-facing front.
+- Caught in review: lamp poles used CylinderMesh defaults
+  (r=0.5!) — giant black pillars; fixed to r=0.09/0.12.
+- Tests: v24 23/23, v42 5/5, v43 6/6 (new: streaks/lamps/steam/
+  gantries). Draws (Xvfb): spawn 985 (atmosphere costs ~+200 vs
+  Phase 2), hilltop 1531. Web export OK. iPhone smoothness and
+  the brightness verdict remain かいと's on a v4 push.
+
+## v4 Phase 2.6 — the density finish (built 2026-11-15, NOT pushed)
+かいと: 「あなたからみて完璧だと思う？あなたの完璧を見てみたい」 —
+the polish pass by my own standard. What the reference has that a
+clean model city lacks: signs jutting at every height, junk on
+every roof, wires across every street.
+- 154 blade/flat signs on building fronts (_build_blade_signs_v4;
+  MultiMesh per material, culled 175 m) + additive glow pools
+  under ~45% of them.
+- 265 rooftop props (_build_rooftops_v4): AC clusters, antennas
+  with pulsing beacons (_mat_beacon), water tanks, billboard
+  pylons on tall buildings — jagged silhouettes vs the pale sky.
+- 140 cable segments (_build_cables_v4): sagging two-segment
+  spans across avenues/streets every ~38 m + plaza diagonals.
+- Mega screen spill: 3 cyan streaks across the plaza; holo
+  retinted pink -> pale cyan (ring + label) for palette discipline.
+- Tests: v24 23/23, v42 5/5, v43 6/6, v44 5/5 (signs/props/cables).
+  Draws: spawn 1000, street framings 545-653, hilltop 1531.
+  Web export OK. Remaining honest ceiling on mobile web: true
+  reflections/volumetrics, AAA model density, character fidelity.
+
+## v4 Phase 2.7 — PBR ground (built 2026-11-15, NOT pushed)
+かいと's pick: the ground was ツルツル (flat colour). Full PBR
+sets from ambientCG (CC0), every shipped map connected:
+- Roads + skyway deck: Asphalt006 (Color/NormalGL/Roughness/AO/
+  Displacement), 4 m tiles.
+- Plaza + sidewalks + canal walls: Concrete034 (Color/NormalGL/
+  Roughness/Displacement — this set ships no AO map), 5-6 m tiles.
+- City floor (GroundMat): Asphalt008, heavily cracked, full set
+  incl. AO, 5 m tiles.
+Wiring (world_v4._pbr_ground): StandardMaterial3D with albedo,
+normal (0.7-1.0), roughness texture, AO (light affect 0.55),
+Displacement as parallax heightmap (0.5-1.0). The terrain mesh
+has no usable UVs -> world-space TRIPLANAR (uv1_triplanar);
+verified clean on this VM's llvmpipe first (tests/tri_test.gd —
+the v1-era uv1_scale corruption does NOT reproduce on the
+triplanar path). Textures ride as TextureLoader blobs (24 total).
+Blend work: the sets' native colours are blue-grey and read
+bright blue under the cool dawn ambient — tints rebalanced to
+warm dark greys (R>=G>B, ~0.46-0.60) so the ground sits in the
+same grade as the buildings; verified in spawn + market shots.
+Draws unchanged (spawn 1000). All suites pass; Web export OK.
