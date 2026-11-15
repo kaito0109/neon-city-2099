@@ -41,20 +41,33 @@ static func find_ap(node: Node) -> AnimationPlayer:
 
 ## Play the clip whose name ends with the given suffix ("Walk",
 ## "Idle_Neutral", ...). Returns false when no such clip exists.
-static func play(ap: AnimationPlayer, suffix: String) -> bool:
+static func play(ap: AnimationPlayer, suffix: String, oneshot: bool = false) -> bool:
 	if ap == null:
 		return false
 	for c in ap.get_animation_list():
 		if c.ends_with(suffix):
 			# Locomotion / idle clips must loop; not every source GLB
 			# flags that, so enforce it on the shared Animation.
+			# One-shot clips (the player's Roll) must NOT loop.
 			var anim: Animation = ap.get_animation(c)
-			if anim != null and anim.loop_mode != Animation.LOOP_LINEAR:
-				anim.loop_mode = Animation.LOOP_LINEAR
+			if anim != null:
+				var want_loop: Animation.LoopMode = Animation.LOOP_NONE if oneshot else Animation.LOOP_LINEAR
+				if anim.loop_mode != want_loop:
+					anim.loop_mode = want_loop
 			if ap.current_animation != c:
 				ap.play(c)
 			return true
 	return false
+
+static func clip_length(ap: AnimationPlayer, suffix: String) -> float:
+	if ap == null:
+		return 0.0
+	for c in ap.get_animation_list():
+		if c.ends_with(suffix):
+			var anim: Animation = ap.get_animation(c)
+			if anim != null:
+				return anim.length
+	return 0.0
 
 static func has_clip(ap: AnimationPlayer, suffix: String) -> bool:
 	if ap == null:

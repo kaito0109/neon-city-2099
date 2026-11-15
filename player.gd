@@ -180,9 +180,19 @@ func _maybe_autograb(wish: Vector3) -> void:
 	_wall_normal = n
 	velocity.y = 0.0
 
+const ROLL_SPD: float = 2.0
+
 func _on_land() -> void:
+	# A landing ends any flip / fall lean on the spot: the model must
+	# never keep rotating or leaning once the feet are down.
+	_flip_t = 0.0
+	if _model != null:
+		_model.rotation.x = 0.0
 	if _fall_peak > 13.0:
-		_roll_t = 0.5
+		# Play the roll out in full (the clip is 1.67 s; cutting it at
+		# 0.5 s blended out of a deep tuck and read as broken legs).
+		var rl: float = People.clip_length(_anim, "Roll")
+		_roll_t = (rl / ROLL_SPD) if rl > 0.1 else 0.5
 		_cur_clip = ""
 	if _fall_peak > 16.0:
 		var dmg: float = minf(55.0, (_fall_peak - 16.0) * 2.4)
@@ -318,7 +328,10 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 	if _flip_t > 0.0:
 		_flip_t -= delta
 		var p: float = 1.0 - clampf(_flip_t / 0.45, 0.0, 1.0)
-		_model.rotation.x = -TAU * p
+		# Snap the completed flip to exactly 0 (-TAU is the same angle;
+		# leaving -6.28 here made the pitch lerp below unwind a whole
+		# extra turn on the ground).
+		_model.rotation.x = -TAU * p if p < 1.0 else 0.0
 	else:
 		var pitch_t: float = 0.0
 		if not on_floor and not _climbing:
@@ -336,7 +349,7 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 		spd = 1.15
 	elif _roll_t > 0.0:
 		want = "Roll"
-		spd = 1.5
+		spd = ROLL_SPD
 	elif not on_floor:
 		want = "Run"
 		spd = 0.35 if velocity.y < -2.5 else 0.8
@@ -348,5 +361,5 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 		spd = clampf(hspeed / 2.2, 0.6, 1.8)
 	if want != _cur_clip:
 		_cur_clip = want
-		People.play(_anim, want)
+		People.play(_anim, want, want == "Roll")
 	_anim.speed_scale = spd

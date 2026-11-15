@@ -666,3 +666,23 @@ Blender-side rework, two portrait PDCA cycles (tests/v49_bldshot):
 - Perf guard: near-LOD swap 140 m → 125 m (fog hides the pop);
   near face counts 358-519, far 47-63.
 - Suites v24/v42/v43/v44/v45 green; Web export OK.
+
+## v5.1 — landing / roll hardening (2026-11-15, his device report)
+His iPhone photos after jumps showed the legs left in extreme poses
+(his crops: feet rotated flat like paddles; the Run cycle's measured
+extremes are Foot 2.17 rad / knee 1.73 rad). Desktop repro (stationary
+jump, double jump, 26 m fall, frame-by-frame roll sequence) did NOT
+reproduce a stuck pose — the state machine tested clean — so the
+landing transition family was hardened instead:
+- Landing now ends any flip and zeroes the model pitch on the spot
+  (a flip could previously keep rotating on the ground, and a
+  completed flip left rotation.x at -TAU, which the pitch lerp then
+  unwound as a whole extra turn).
+- The landing roll was cut at 0.5 s of a 1.67 s clip (45%) and the
+  clip was force-looped by People.play. Roll is now a true one-shot
+  (People.play gains an oneshot flag + clip_length helper) and
+  _roll_t matches the clip: 1.67 s / 2.0 speed = 0.83 s.
+- Verified: roll sequence re-shot (full arc, clean stand), suites
+  v15/v18/v20/v21/v24/v42/v45 green (touch suites under Xvfb).
+  Device confirmation still pending — if it persists, the deciding
+  detail is whether it follows plain jumps or only flips/high falls.
