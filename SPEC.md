@@ -644,3 +644,25 @@ cycles (tests/v48_shot.gd):
   is alive from the ground and from the air.
 - Suites: v15/v18/v20/v21/v24/v42/v43/v44/v45 all green; Web
   export OK.
+
+## v5 — buildings rework (2026-11-15 overnight, his 02:51 order)
+"Buildings are the one thing I'm not satisfied with" — full
+Blender-side rework, two portrait PDCA cycles (tests/v49_bldshot):
+- Massing forms (silhouette variety): stack / cant (offset tiers
+  on stepped corbels) / step (staircase slices) / slope (wedge
+  roof prism) / twin (two slabs + recessed core + lit skybridges).
+  22 → 32 archetypes (kit gains towers).
+- Ground floors are individual shop units: glass panes split by
+  fins, per-unit sign strips, shuttered units, and BldGlassLit —
+  warm lit interiors so storefronts read as open businesses.
+- Window textures v3: recess shading, rain drips under sills,
+  closed blinds / drawn AC units / curtains on dark panes, TV
+  glow + brightness jitter on lit panes, concrete panel seams
+  (ent), curtain-wall mullion grid (mil), kit frames darkened.
+- Facade geometry: ent duct trunking + patch panels, kit
+  alternating balconies with railings + vertical colour stripes,
+  mil spandrel bands + glass sky-lobbies.
+- Roofs: parapet rims on every archetype, helipads on towers.
+- Perf guard: near-LOD swap 140 m → 125 m (fog hides the pop);
+  near face counts 358-519, far 47-63.
+- Suites v24/v42/v43/v44/v45 green; Web export OK.

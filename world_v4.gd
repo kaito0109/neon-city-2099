@@ -342,6 +342,13 @@ func _make_bld_materials() -> void:
 	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glass.albedo_color = Color(0.13, 0.20, 0.25)
 	_bld_mats["BldGlass"] = glass
+	# v5: lit shopfront glass — interiors glow warm, so the ground
+	# floor reads as open businesses, not black voids (portrait
+	# PDCA, v49_c).
+	var glass_lit := StandardMaterial3D.new()
+	glass_lit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glass_lit.albedo_color = Color(0.44, 0.34, 0.20)
+	_bld_mats["BldGlassLit"] = glass_lit
 	_bld_mats["BldDark"] = _mat_dark_metal
 	_bld_mats["BldRoof"] = _mat_roof
 	var conc := StandardMaterial3D.new()
@@ -442,7 +449,7 @@ func _place_building_v4(plot: Dictionary, center: Vector3) -> void:
 	inst.name = bname
 	add_child(inst)
 	if bool(entry["far"]):
-		_set_vis(inst, 0.0, 140.0)
+		_set_vis(inst, 0.0, 125.0)  # v5: richer near models; swap a bit sooner (fog hides it)
 		var finst: Node3D = ModelLoader.load_model(
 			"res://assets/bld/" + bname + "_far.glb",
 			"res://assets/bld_data/" + bname + "_far.tres")
@@ -453,7 +460,7 @@ func _place_building_v4(plot: Dictionary, center: Vector3) -> void:
 			finst.scale = Vector3(sx, sy, sz)
 			finst.name = bname + "_far"
 			add_child(finst)
-			_set_vis(finst, 135.0, 0.0)
+			_set_vis(finst, 120.0, 0.0)
 			far_lod_count += 1
 	# Local-space collider: the parent instance carries the scale.
 	_add_collider(inst, Vector3(fw, fh2, fd), Vector3(0, fh2 * 0.5, 0))

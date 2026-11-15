@@ -39,7 +39,7 @@ MAT_NAMES = (
     _WIN_BASE
     + [m + "S" for m in _WIN_BASE]   # side faces: baked shade x0.74
     + [m + "B" for m in _WIN_BASE]   # back face: baked shade x0.52
-    + ["BldGlass", "BldDark", "BldConc", "BldPlas", "BldPlas2", "BldYel",
+    + ["BldGlass", "BldGlassLit", "BldDark", "BldConc", "BldPlas", "BldPlas2", "BldYel",
        "SignC", "SignP", "SignY", "SignW", "BldRoof"]
 )
 WIN_MATS = {"BldEntA", "BldEntB", "BldKitA", "BldKitB", "BldMilA", "BldMilB"}
@@ -130,37 +130,118 @@ class Geo:
                                    [(0.5, 0.5), (0, 0), (1, 0)]))
 
 
-def _slabs(g, mat, w, d, y_from, y_to, step=FLOOR, thick=0.16, over=0.22):
+def _wedge(g, mat, cx, cz, w, d, y0, h_back, h_front, u_off=0.0):
+    """Sloped-top prism (v5 'slope' form): the roof plane falls
+    from h_back (at z=-d/2) to h_front (at z=+d/2), heights
+    absolute from y0. Side profiles are trapezoids. Window
+    materials keep metre UVs on the vertical faces; the slope
+    itself is BldRoof."""
+    x0, x1 = cx - w / 2.0, cx + w / 2.0
+    z0, z1 = cz - d / 2.0, cz + d / 2.0
+    yb, yf = y0 + h_back, y0 + h_front
+    win = mat in WIN_MATS
+    fmat = mat
+    smat = mat + "S" if win else mat
+    bmat = mat + "B" if win else mat
+
+    def uv(w_m, y_top):
+        if win:
+            return [(u_off, y0 / TILE_H), (u_off + w_m / TILE_W, y0 / TILE_H),
+                    (u_off + w_m / TILE_W, y_top / TILE_H),
+                    (u_off, y_top / TILE_H)]
+        return [(0, 0), (1, 0), (1, 1), (0, 1)]
+
+    g.quad(fmat, [(x0, y0, z1), (x1, y0, z1), (x1, yf, z1), (x0, yf, z1)],
+           uv(w, yf))                                   # +Z front
+    g.quad(bmat, [(x1, y0, z0), (x0, y0, z0), (x0, yb, z0), (x1, yb, z0)],
+           uv(w, yb))                                   # -Z back
+    g.quad(smat, [(x1, y0, z1), (x1, y0, z0), (x1, yb, z0), (x1, yf, z1)],
+           uv(d, max(yb, yf)))                          # +X trapezoid
+    g.quad(smat, [(x0, y0, z0), (x0, y0, z1), (x0, yf, z1), (x0, yb, z0)],
+           uv(d, max(yb, yf)))                          # -X trapezoid
+    g.quad("BldRoof", [(x0, yf, z1), (x1, yf, z1), (x1, yb, z0), (x0, yb, z0)],
+           [(0, 0), (1, 0), (1, 1), (0, 1)])            # sloped top
+
+
+def _podium_units(g, rng, w, d):
+    """v5: the ground floor is individual shop units, not one
+    glass band — glass panes split by dark fins, a small sign
+    strip over most units, some units shuttered dark. Front and
+    back faces; the sides keep the plain band (perf)."""
+    for sgn in (1, -1):
+        zc = sgn * (d / 2 + 0.62)
+        n = max(2, int(round(w / 3.4)))
+        uw = w * 0.92 / n
+        for i in range(n):
+            cx = -w * 0.46 + uw * (i + 0.5)
+            if sgn == 1 and abs(cx) < 2.3:
+                continue  # entrance recess lives here
+            closed = rng.random() < 0.22
+            gmat = "BldDark" if closed else (
+                "BldGlassLit" if rng.random() < 0.55 else "BldGlass")
+            g.box(gmat, cx, 1.55, zc, uw - 0.35, 2.3, 0.14)
+            if not closed and rng.random() < 0.62:
+                g.box(rng.choice(SIGNS), cx, 3.02, zc + sgn * 0.04,
+                      uw - 0.7, 0.48, 0.18)
+        for i in range(n + 1):
+            fx = -w * 0.46 + uw * i
+            g.box("BldDark", fx, PODIUM_H / 2, zc, 0.3, PODIUM_H, 0.2)
+
+
+def _parapet(g, w, d, top, cx=0.0):
+    """Thin rim around the roof edge — crisps the silhouette
+    from the street and from the air."""
+    g.box("BldDark", cx, top + 0.3, d / 2 - 0.09, w + 0.5, 0.6, 0.18)
+    g.box("BldDark", cx, top + 0.3, -d / 2 + 0.09, w + 0.5, 0.6, 0.18)
+    g.box("BldDark", cx + w / 2 - 0.09, top + 0.3, 0, 0.18, 0.6, d + 0.5)
+    g.box("BldDark", cx - w / 2 + 0.09, top + 0.3, 0, 0.18, 0.6, d + 0.5)
+
+
+def _helipad(g, top, cx=0.0):
+    """Dark pad + pale H, readable from the air (towers only)."""
+    g.cyl("BldDark", cx, 0, 3.4, top, top + 0.14, seg=18)
+    g.box("BldConc", cx - 0.85, top + 0.18, 0, 0.5, 0.05, 2.6)
+    g.box("BldConc", cx + 0.85, top + 0.18, 0, 0.5, 0.05, 2.6)
+    g.box("BldConc", cx, top + 0.18, 0, 1.7, 0.05, 0.5)
+
+
+def _slabs(g, mat, w, d, y_from, y_to, step=FLOOR, thick=0.16, over=0.22, cx=0.0):
     y = y_from + step
     while y < y_to - 0.4:
-        g.box(mat, 0, y, 0, w + over, thick, d + over, bottom=True)
+        g.box(mat, cx, y, 0, w + over, thick, d + over, bottom=True)
         y += step
 
 
-def _roof_clutter(g, rng, w, d, top, style):
+def _roof_clutter(g, rng, w, d, top, style, cx=0.0):
     n = rng.randint(1, 3)
     for _ in range(n):
         bw = rng.uniform(1.4, 3.2)
         bh = rng.uniform(0.7, 1.6)
-        bx = rng.uniform(-w / 2 + bw, w / 2 - bw)
+        bx = cx + rng.uniform(-w / 2 + bw, w / 2 - bw)
         bz = rng.uniform(-d / 2 + bw, d / 2 - bw)
         g.box("BldDark", bx, top + bh / 2, bz, bw, bh, bw * rng.uniform(0.7, 1.1),
               bottom=True)
     if style == "ent":
         # Rooftop water tank — the entropism silhouette staple.
-        tx = rng.uniform(-w / 4, w / 4)
+        tx = cx + rng.uniform(-w / 4, w / 4)
         tz = rng.uniform(-d / 4, d / 4)
         g.cyl("BldConc", tx, tz, 1.5, top, top + 2.6, seg=12)
         g.cyl("BldDark", tx, tz, 1.62, top + 2.6, top + 2.85, seg=12)
         g.box("BldDark", tx, top + 0.3, tz, 2.2, 0.6, 2.2)
     if rng.random() < 0.6:
-        ax = rng.uniform(-w / 3, w / 3)
+        ax = cx + rng.uniform(-w / 3, w / 3)
         g.box("BldDark", ax, top + rng.uniform(1.6, 3.0), rng.uniform(-d / 3, d / 3),
               0.14, rng.uniform(3.2, 6.0), 0.14)
 
 
-def build_building(style, band, w, d, h, seed, far=False):
-    """Returns a Geo. Heights arrive pre-quantised to the floor grid."""
+def build_building(style, band, w, d, h, seed, far=False, form="stack"):
+    """Returns a Geo. Heights arrive pre-quantised to the floor grid.
+
+    v5 forms (silhouette variety — the thing the owner kept
+    flagging): stack (setback tiers), cant (offset upper tier on
+    stepped corbels), step (staircase of slices), slope (slanted
+    roof prism), twin (two slabs + recessed core + skybridges).
+    """
     rng = random.Random(seed)
     g = Geo()
     win = {"ent": "BldEntA" if seed % 2 == 0 else "BldEntB",
@@ -169,37 +250,113 @@ def build_building(style, band, w, d, h, seed, far=False):
     sign = rng.choice(SIGNS)
     u_off = rng.uniform(0.0, 0.9)
     shaft_top = h
-    # --- podium: lit ground floor on all sides (v3 discipline) ---
+    # --- podium: ground floor ---
     g.box("BldDark", 0, PODIUM_H / 2, 0, w + 1.2, PODIUM_H, d + 1.2, bottom=True)
-    for sgn, along_x in ((1, True), (-1, True), (1, False), (-1, False)):
-        if along_x:
-            g.box("BldGlass", 0, 1.55, sgn * (d / 2 + 0.62), w * 0.9, 2.3, 0.14)
-        else:
+    if far:
+        for sgn, along_x in ((1, True), (-1, True), (1, False), (-1, False)):
+            if along_x:
+                g.box("BldGlass", 0, 1.55, sgn * (d / 2 + 0.62), w * 0.9, 2.3, 0.14)
+            else:
+                g.box("BldGlass", sgn * (w / 2 + 0.62), 1.55, 0, 0.14, 2.3, d * 0.9)
+    else:
+        for sgn in (1, -1):
             g.box("BldGlass", sgn * (w / 2 + 0.62), 1.55, 0, 0.14, 2.3, d * 0.9)
+        _podium_units(g, rng, w, d)
     # Sign board over the front entrance + entrance dark recess.
     g.box(sign, 0, PODIUM_H + 0.45, d / 2 + 0.35, w * rng.uniform(0.4, 0.62), 0.85, 0.3)
     g.box("BldDark", 0, 1.5, d / 2 + 0.63, 3.2, 3.0, 0.1)
-    # --- main shaft ---
-    tiers = [(w, d, PODIUM_H, shaft_top)]
-    if band in ("high", "tower"):
-        cut1 = PODIUM_H + round((h - PODIUM_H) * 0.52 / FLOOR) * FLOOR
-        tiers = [(w, d, PODIUM_H, cut1),
-                 (w * 0.8, d * 0.8, cut1, shaft_top)]
-        if band == "tower":
-            cut2 = cut1 + round((h - cut1) * 0.55 / FLOOR) * FLOOR
-            tiers = [(w, d, PODIUM_H, cut1),
-                     (w * 0.82, d * 0.82, cut1, cut2),
-                     (w * 0.62, d * 0.62, cut2, shaft_top)]
-    for (tw, td, y0, y1) in tiers:
-        g.box(win, 0, (y0 + y1) / 2, 0, tw, y1 - y0, td, y_base=y0, u_off=u_off,
-              top_mat="BldRoof")
+    # --- shaft: massing by form ---
+    top_w, top_d, crown_cx = w, d, 0.0
+    if form == "step":
+        if band in ("high", "tower"):
+            cuts = [(0.40, 1.0), (0.32, 0.72), (0.28, 0.46)]
+        else:
+            cuts = [(0.55, 1.0), (0.45, 0.62)]
+        xcur = -w / 2
+        for (frac, hf) in cuts:
+            sw = w * frac
+            sh = PODIUM_H + round((h - PODIUM_H) * hf / FLOOR) * FLOOR
+            if sh > PODIUM_H + FLOOR:
+                g.box(win, xcur + sw / 2, (PODIUM_H + sh) / 2, 0, sw,
+                      sh - PODIUM_H, d, y_base=PODIUM_H, u_off=u_off,
+                      top_mat="BldRoof")
+                if not far:
+                    _slabs(g, "BldDark", sw, d, PODIUM_H, sh, cx=xcur + sw / 2)
+            xcur += sw
+        top_w = w * cuts[0][0]
+        crown_cx = -w / 2 + top_w / 2
+        g.box("BldDark", crown_cx, shaft_top + 0.18, 0, top_w + 0.5, 0.36,
+              top_d + 0.5, bottom=True)
         if not far:
-            _slabs(g, "BldDark", tw, td, y0, y1)
-    top_w, top_d = tiers[-1][0], tiers[-1][1]
-    # Crown slab (+ glow strip for mil / tall).
-    g.box("BldDark", 0, shaft_top + 0.18, 0, top_w + 0.5, 0.36, top_d + 0.5, bottom=True)
-    if not far and (style == "mil" or band == "tower") and rng.random() < 0.8:
-        g.box(sign, 0, shaft_top - 0.5, top_d / 2 + 0.1, top_w * 0.7, 0.5, 0.18)
+            _parapet(g, top_w, top_d, shaft_top + 0.36, cx=crown_cx)
+    elif form == "slope":
+        slope_h = FLOOR * (3 if band == "tower" else 2)
+        y_base2 = h - slope_h
+        g.box(win, 0, (PODIUM_H + y_base2) / 2, 0, w, y_base2 - PODIUM_H, d,
+              y_base=PODIUM_H, u_off=u_off, top_mat="BldRoof")
+        if not far:
+            _slabs(g, "BldDark", w, d, PODIUM_H, y_base2)
+        _wedge(g, win, 0, 0, w * 0.97, d * 0.97, y_base2, slope_h,
+               slope_h * 0.3, u_off)
+        g.box("BldDark", 0, h + 0.08, -d * 0.485 + 0.15, w * 0.97, 0.34, 0.3)
+    elif form == "twin":
+        sw = w * 0.44
+        gap = w * 0.12
+        for sgn in (1, -1):
+            cx = sgn * (gap / 2 + sw / 2)
+            g.box(win, cx, (PODIUM_H + h) / 2, 0, sw, h - PODIUM_H, d,
+                  y_base=PODIUM_H, u_off=u_off, top_mat="BldRoof")
+            if not far:
+                _slabs(g, "BldDark", sw, d, PODIUM_H, h, cx=cx)
+            g.box("BldDark", cx, shaft_top + 0.18, 0, sw + 0.5, 0.36,
+                  d + 0.5, bottom=True)
+            if not far:
+                _parapet(g, sw, d, shaft_top + 0.36, cx=cx)
+        # Recessed dark core + two glass skybridges.
+        g.box("BldDark", 0, (PODIUM_H + h) / 2, 0, gap + 0.5,
+              h - PODIUM_H - 1.0, d * 0.45)
+        if not far:
+            for hf in (0.38, 0.72):
+                by = PODIUM_H + (h - PODIUM_H) * hf
+                g.box("BldGlassLit", 0, by, 0, gap + sw * 0.36, 2.6, d * 0.52)
+                g.box(sign, 0, by + 1.55, d * 0.26 + 0.12, w * 0.3, 0.45, 0.2)
+        top_w = sw
+    else:
+        # stack / cant: setback tiers; cant offsets the upper
+        # tiers toward +x on stepped corbels.
+        tiers = [(w, d, PODIUM_H, shaft_top, 0.0)]
+        if band in ("high", "tower"):
+            cut1 = PODIUM_H + round((h - PODIUM_H) * 0.52 / FLOOR) * FLOOR
+            tiers = [(w, d, PODIUM_H, cut1, 0.0),
+                     (w * 0.8, d * 0.8, cut1, shaft_top, 0.0)]
+            if band == "tower":
+                cut2 = cut1 + round((h - cut1) * 0.55 / FLOOR) * FLOOR
+                tiers = [(w, d, PODIUM_H, cut1, 0.0),
+                         (w * 0.82, d * 0.82, cut1, cut2, 0.0),
+                         (w * 0.62, d * 0.62, cut2, shaft_top, 0.0)]
+        if form == "cant" and len(tiers) > 1:
+            tiers = [(tw, td, y0, y1, 0.0 if i == 0 else
+                      (tiers[0][0] - tw) / 2 + 1.2 * (0.7 if i == 1 else 1.0))
+                     for i, (tw, td, y0, y1, _c) in enumerate(tiers)]
+            # Stepped corbels under the first offset tier.
+            tw1, td1, y01 = tiers[1][0], tiers[1][1], tiers[1][2]
+            ex = tiers[1][4] + tw1 / 2
+            g.box("BldConc", ex - 0.7, y01 - 0.3, 0, 1.8, 0.6, td1 * 0.92)
+            g.box("BldConc", ex - 1.15, y01 - 0.85, 0, 0.9, 0.5, td1 * 0.92)
+        for (tw, td, y0, y1, tcx) in tiers:
+            g.box(win, tcx, (y0 + y1) / 2, 0, tw, y1 - y0, td, y_base=y0,
+                  u_off=u_off, top_mat="BldRoof")
+            if not far:
+                _slabs(g, "BldDark", tw, td, y0, y1, cx=tcx)
+        top_w, top_d = tiers[-1][0], tiers[-1][1]
+        crown_cx = tiers[-1][4]
+        g.box("BldDark", crown_cx, shaft_top + 0.18, 0, top_w + 0.5, 0.36,
+              top_d + 0.5, bottom=True)
+        if not far:
+            _parapet(g, top_w, top_d, shaft_top + 0.36, cx=crown_cx)
+        if not far and (style == "mil" or band == "tower") and rng.random() < 0.8:
+            g.box(sign, crown_cx, shaft_top - 0.5, top_d / 2 + 0.1,
+                  top_w * 0.7, 0.5, 0.18)
     if far:
         return g
     # --- style details ---
@@ -209,19 +366,35 @@ def build_building(style, band, w, d, h, seed, far=False):
             fx = rng.uniform(-w / 2 + 1.5, w / 2 - 1.5)
             fy = rng.uniform(PODIUM_H + 3, h - 2.5)
             side = rng.choice((1, -1))
-            g.box("BldConc", fx, fy, side * (d / 2 + 0.3), 1.1, 0.8, 0.55)
+            g.box("BldConc", fx, fy, side * (d / 2 + 0.24), 0.95, 0.7, 0.42)
         for sxn in (-1, 1):
             g.box("BldDark", sxn * (w / 2 + 0.12), h / 2, d / 2 + 0.12,
                   0.24, h - 1.0, 0.24)
         g.box("BldDark", -w * 0.28, 1.6, d / 2 + 0.64, 2.4, 3.2, 0.08)
+        # v5: horizontal duct trunking + patched concrete panels.
+        for _ in range(rng.randint(1, 2)):
+            dy = rng.uniform(PODIUM_H + 5.0, h - 4.0)
+            g.box("BldConc", rng.uniform(-w * 0.1, w * 0.1), dy, d / 2 + 0.17,
+                  w * rng.uniform(0.55, 0.85), 0.5, 0.3)
+        for _ in range(rng.randint(3, 5)):
+            px = rng.uniform(-w / 2 + 1.2, w / 2 - 1.2)
+            py = rng.uniform(PODIUM_H + 2.0, h - 2.0)
+            side = rng.choice((1, -1))
+            g.box("BldConc", px, py, side * (d / 2 + 0.045),
+                  rng.uniform(1.0, 2.4), rng.uniform(1.2, 2.8), 0.07)
     elif style == "kit":
         # Rounded corner columns + balcony slabs + disc sign.
         for sxn in (-1, 1):
             for szn in (-1, 1):
                 g.cyl("BldPlas", sxn * w / 2, szn * d / 2, 0.8, 0, h - 0.6, seg=10, cap=False)
         y = PODIUM_H + FLOOR
+        _bi = 0
         while y < h - 2.0:
-            g.box("BldPlas2", 0, y, d / 2 + 0.55, w * 0.7, 0.22, 1.1, bottom=True)
+            bw2 = w * (0.7 if _bi % 2 == 0 else 0.46)
+            bx2 = 0.0 if _bi % 2 == 0 else w * 0.16
+            g.box("BldPlas2", bx2, y, d / 2 + 0.55, bw2, 0.22, 1.1, bottom=True)
+            g.box("BldDark", bx2, y + 0.32, d / 2 + 1.06, bw2, 0.42, 0.07)
+            _bi += 1
             y += FLOOR * 2
         g.box("BldYel", 0, h - 0.35, 0, w + 0.3, 0.5, d + 0.3, bottom=True)
         # Round sign board on the front face: a short cylinder whose
@@ -239,6 +412,12 @@ def build_building(style, band, w, d, h, seed, far=False):
                   [(0.5, 0.5), (0, 0), (1, 0)])
             g.tri(sign, [(0, h * 0.55, zhi), p(a1, zhi), p(a0, zhi)],
                   [(0.5, 0.5), (0, 0), (1, 0)])
+        # v5: vertical colour stripes breaking the window grid.
+        for _ in range(rng.randint(2, 3)):
+            sx = rng.uniform(-w / 2 + 1.0, w / 2 - 1.0)
+            g.box("BldYel" if rng.random() < 0.35 else "BldPlas",
+                  sx, (PODIUM_H + h) / 2, d / 2 + 0.06, 0.55,
+                  h - PODIUM_H - 0.8, 0.1)
     else:  # mil
         # Vertical fins on front/back + entrance canopy.
         fx = -w / 2 + 1.1
@@ -251,7 +430,19 @@ def build_building(style, band, w, d, h, seed, far=False):
         if rng.random() < 0.7:
             g.box(sign, w * 0.3, h * rng.uniform(0.55, 0.75), d / 2 + 0.22,
                   0.35, rng.uniform(3.0, 5.0), 0.3)
-    _roof_clutter(g, rng, top_w, top_d, shaft_top + 0.36, style)
+        # v5: spandrel bands every 3 floors + a glass sky-lobby.
+        yy = PODIUM_H + FLOOR * 3
+        while yy < h - 1.5:
+            for szn in (1, -1):
+                g.box("BldDark", 0, yy, szn * (d / 2 + 0.05), w * 0.96, 0.3, 0.1)
+            yy += FLOOR * 3
+        if band == "tower" and rng.random() < 0.55:
+            ly = PODIUM_H + (h - PODIUM_H) * rng.uniform(0.4, 0.6)
+            g.box("BldGlass", 0, ly, d / 2 + 0.3, w * 0.52, 3.0, 0.65)
+            g.box(sign, 0, ly + 1.75, d / 2 + 0.32, w * 0.52, 0.4, 0.6)
+    _roof_clutter(g, rng, top_w, top_d, shaft_top + 0.36, style, cx=crown_cx)
+    if band == "tower" and top_w >= 11.0 and rng.random() < 0.75:
+        _helipad(g, shaft_top + 0.4, cx=crown_cx)
     # Wall blade sign on a side face.
     if rng.random() < 0.65:
         g.box(sign, w / 2 + 0.55, rng.uniform(PODIUM_H + 2.5, max(PODIUM_H + 3.0, h - 2.0)),
@@ -272,6 +463,16 @@ VARIANTS = [
     ("mil_mid_a", "mil", "mid", 15, 15, 7), ("mil_mid_b", "mil", "mid", 16, 14, 8),
     ("mil_high_a", "mil", "high", 16, 16, 12), ("mil_high_b", "mil", "high", 17, 15, 14),
     ("mil_tower_a", "mil", "tower", 17, 17, 19), ("mil_tower_b", "mil", "tower", 18, 17, 25),
+    ("ent_mid_c", "ent", "mid", 15, 14, 7, "cant"),
+    ("ent_high_c", "ent", "high", 16, 15, 12, "slope"),
+    ("ent_tower_c", "ent", "tower", 17, 16, 21, "step"),
+    ("kit_mid_c", "kit", "mid", 14, 13, 6, "step"),
+    ("kit_high_c", "kit", "high", 15, 14, 9, "cant"),
+    ("kit_tower_a", "kit", "tower", 16, 16, 17, "stack"),
+    ("kit_tower_b", "kit", "tower", 17, 16, 21, "slope"),
+    ("mil_mid_c", "mil", "mid", 16, 15, 8, "cant"),
+    ("mil_high_c", "mil", "high", 17, 16, 13, "twin"),
+    ("mil_tower_c", "mil", "tower", 18, 17, 22, "slope"),
 ]
 FAR_BANDS = {"mid", "high", "tower"}
 
@@ -371,16 +572,19 @@ def main():
     export_geo(build_arch(), "hero_arch")
     export_geo(build_cyl(), "hero_cyl")
     manifest = {}
-    for (name, style, band, w, d, floors) in VARIANTS:
+    for row in VARIANTS:
+        (name, style, band, w, d, floors) = row[:6]
+        form = row[6] if len(row) > 6 else "stack"
         h = PODIUM_H + floors * FLOOR
         seed = zlib.crc32(name.encode()) % 100000
-        export_geo(build_building(style, band, float(w), float(d), h, seed), name)
+        export_geo(build_building(style, band, float(w), float(d), h, seed,
+                                  form=form), name)
         entry = {"style": style, "band": band, "w": w, "d": d, "h": round(h, 2),
                  "far": band in FAR_BANDS}
         manifest[name] = entry
         if band in FAR_BANDS:
             export_geo(build_building(style, band, float(w), float(d), h, seed,
-                                      far=True), name + "_far")
+                                      far=True, form=form), name + "_far")
     with open(os.path.join(ROOT, "bld_manifest.json"), "w") as f:
         json.dump(manifest, f)
     lines = ["class_name BldManifest", "## Generated by blender/build_buildings_v4.py — do not edit.",

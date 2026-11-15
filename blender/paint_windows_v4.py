@@ -69,18 +69,52 @@ def _window(d, rng, cx, cy, kind, dim):
     y1 = cy + CELL - 34
     # Sill shadow / grime below the window.
     d.rectangle([x0 - 3, y1 + 3, x1 + 3, y1 + 10], fill=(0, 0, 0, 60))
+    # v5: rain drip running down the wall from the sill — the
+    # streak that makes a facade read as weathered, not printed.
+    dx = rng.uniform(x0 + 4, x1 - 10)
+    d.rectangle([dx, y1 + 9, dx + rng.uniform(3, 7),
+                 y1 + 9 + rng.uniform(14, 38)], fill=(0, 0, 0, 44))
     # Frame.
-    frame = (12, 13, 16) if kind != "kit" else (225, 228, 232)
+    frame = (12, 13, 16) if kind != "kit" else (148, 152, 158)
     d.rectangle([x0 - 5, y0 - 5, x1 + 5, y1 + 5], fill=frame)
     g = _glass_color(rng, kind)
     if dim:
         g = tuple(int(v * 0.55) for v in g)
+    # Per-window brightness jitter so no two lit windows match.
+    jit = rng.uniform(0.85, 1.08)
+    g = tuple(min(255, int(v * jit)) for v in g)
     d.rectangle([x0, y0, x1, y1], fill=g)
+    # Recess shading: dark reveal at the top, faint bounce at the
+    # sill — the window sits IN the wall instead of ON it.
+    d.rectangle([x0, y0, x1, y0 + 4], fill=(0, 0, 0, 96))
+    d.rectangle([x0, y0, x0 + 4, y1], fill=(0, 0, 0, 64))
+    d.rectangle([x0, y1 - 3, x1, y1], fill=(255, 255, 255, 22))
     lit = sum(g) > 190
+    if not lit:
+        r0 = rng.random()
+        if r0 < 0.26:
+            # Closed blinds: pale slats over the whole pane.
+            slat = tuple(min(255, int(v * 1.9 + 52)) for v in g)
+            for yy in range(int(y0) + 4, int(y1) - 4, 8):
+                d.rectangle([x0 + 3, yy, x1 - 3, yy + 3], fill=slat)
+        elif r0 < 0.40:
+            # AC unit in the window corner: grey box + fan disc.
+            ax, ay = x1 - 34, y1 - 28
+            d.rectangle([ax, ay, ax + 30, ay + 24], fill=(96, 100, 108))
+            d.rectangle([ax, ay, ax + 30, ay + 3], fill=(64, 68, 76))
+            d.ellipse([ax + 6, ay + 5, ax + 24, ay + 23], fill=(40, 44, 52))
+        elif r0 < 0.52:
+            # Curtains: soft vertical bands at both edges.
+            cur = tuple(min(255, int(v * 1.6 + 34)) for v in g)
+            d.rectangle([x0 + 2, y0 + 2, x0 + 16, y1 - 2], fill=cur)
+            d.rectangle([x1 - 16, y0 + 2, x1 - 2, y1 - 2], fill=cur)
     if lit:
         # Interior depth: darker header + a hint of blinds or a
         # silhouette on some windows so lit cells are not flat.
         d.rectangle([x0, y0, x1, y0 + 10], fill=tuple(int(v * 0.72) for v in g))
+        if rng.random() < 0.16:
+            # TV / monitor glow washing the pane cool blue.
+            d.rectangle([x0, y0, x1, y1], fill=(96, 148, 208, 52))
         r = rng.random()
         if r < 0.38:
             for yy in range(int(y0) + 16, int(y1) - 8, 9):
@@ -117,6 +151,10 @@ def _base(rng, kind):
         for f in range(4):
             y = (f + 1) * CELL - 3
             d.rectangle([0, y, SIZE, y + 3], fill=(46, 47, 52))
+        # Concrete panel seams: vertical joints at cell borders.
+        for cx in range(4):
+            x = cx * CELL
+            d.rectangle([x, 0, x + 2, SIZE], fill=(40, 41, 46, 90))
     elif kind == "kit":
         base = (100, 106, 114)
         img.paste(base, (0, 0, SIZE, SIZE))
@@ -138,6 +176,10 @@ def _base(rng, kind):
         for f in range(4):
             y = (f + 1) * CELL - 2
             d.rectangle([0, y, SIZE, y + 2], fill=(38, 44, 54))
+        # Curtain-wall mullion grid: thin verticals every half cell
+        # so the glass reads as panes with frames, not one sheet.
+        for mx in range(0, SIZE, CELL // 2):
+            d.rectangle([mx, 0, mx + 2, SIZE], fill=(44, 52, 64, 160))
     return img, d
 
 

@@ -75,7 +75,7 @@ func build(font: Font, latin: Font = null) -> void:
 	hp_bar.max_value = 100
 	hp_bar.value = 100
 	hp_bar.show_percentage = false
-	hp_bar.position = Vector2(86, 11)
+	hp_bar.position = Vector2(102, 11)
 	hp_bar.size = Vector2(170, 17)
 	hp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hp_bar.add_theme_stylebox_override("background",
@@ -91,7 +91,7 @@ func build(font: Font, latin: Font = null) -> void:
 	wanted_label.position = Vector2(16, 62)
 	root.add_child(wanted_label)
 	clock_label = _mk_label("21:00", 17, CpUi.ICY)
-	clock_label.position = Vector2(266, 10)
+	clock_label.position = Vector2(284, 10)
 	root.add_child(clock_label)
 	if _latin != null:
 		for l in [hp_label, money_label, clock_label]:
