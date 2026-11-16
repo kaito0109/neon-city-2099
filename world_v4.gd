@@ -35,6 +35,7 @@ func build(font: Font) -> void:
 	_build_terrain()
 	_build_plots()
 	_build_heroes()
+	_build_heroes_v55()
 	_build_roof_multimeshes()
 	_build_pois()
 	_build_holo()
@@ -85,7 +86,8 @@ func _ground_tex(prefix: String, suffix: String) -> Texture2D:
 ## World-space triplanar mapping (the terrain mesh has no usable
 ## UVs), tinted into the dawn grade.
 func _pbr_ground(prefix: String, scale: Vector3, tint: Color,
-		normal_scale: float, height_scale: float, has_ao: bool) -> StandardMaterial3D:
+		normal_scale: float, height_scale: float, has_ao: bool,
+		rough_mult: float = 1.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.albedo_texture = _ground_tex(prefix, "color")
@@ -97,7 +99,7 @@ func _pbr_ground(prefix: String, scale: Vector3, tint: Color,
 	m.normal_enabled = true
 	m.normal_texture = _ground_tex(prefix, "normal")
 	m.normal_scale = normal_scale
-	m.roughness = 1.0
+	m.roughness = rough_mult
 	m.roughness_texture = _ground_tex(prefix, "rough")
 	if has_ao:
 		m.ao_enabled = true
@@ -116,13 +118,14 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 	match name:
 		"GroundMat":
 			# Worn city floor: cracked asphalt (ambientCG Asphalt008).
-			m = _pbr_ground("cracked", Vector3.ONE / 5.0, Color(0.52, 0.50, 0.44), 1.0, 1.0, true)
+			m = _pbr_ground("cracked", Vector3.ONE / 5.0, Color(0.52, 0.50, 0.44), 1.0, 1.0, true, 0.92)
 		"ApronMat":
 			m.albedo_color = Color(0.04, 0.04, 0.07)
 			m.roughness = 1.0
 		"RoadMat":
-			# ambientCG Asphalt006, 4 m tiles.
-			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.55, 0.53, 0.48), 0.9, 0.7, true)
+			# ambientCG Asphalt006, 4 m tiles. v5.5: rough_mult 0.55 —
+			# rain-wet asphalt so the moon/lamp speculars streak.
+			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.55, 0.53, 0.48), 0.9, 0.7, true, 0.55)
 		"SideMat":
 			# ambientCG Concrete034 (2:1 set, 5 m tiles).
 			m = _pbr_ground("concrete", Vector3(0.2, 0.4, 0.4), Color(0.60, 0.59, 0.55), 0.7, 0.5, false)
@@ -140,7 +143,7 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 		"BankMat":
 			m = _pbr_ground("cracked", Vector3.ONE / 3.5, Color(0.50, 0.49, 0.45), 1.25, 1.2, true)
 		"DeckMat":
-			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.46, 0.45, 0.42), 0.9, 0.7, true)
+			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.46, 0.45, 0.42), 0.9, 0.7, true, 0.6)
 		"LineMat":
 			m.albedo_color = Color(0.7, 0.74, 0.82)
 			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -315,6 +318,7 @@ func _ground_y(x: float, z: float) -> float:
 var _bld_mats: Dictionary = {}
 var far_lod_count: int = 0
 var model_building_count: int = 0
+var skf_hero_count: int = 0
 
 func _make_bld_materials() -> void:
 	# Window facades are unshaded night textures (the photo-tower
@@ -399,11 +403,121 @@ func _set_vis(n: Node, begin: float, end: float) -> void:
 # --- buildings on layout plots ---------------------------------------
 
 func _build_plots() -> void:
+	var claims := _skf_claims_v55()
 	for p in _layout["plots"]:
 		var plot: Dictionary = p
 		var center := Vector3(float(plot["x"]), float(plot["y"]), float(plot["z"]))
+		# v5.5: plots claimed by a Sketchfab hero building are left
+		# empty here; _build_heroes_v55 fills them.
+		var claimed := false
+		for c in claims:
+			var cv := c as Vector4
+			if absf(center.x - cv.x) < cv.z and absf(center.z - cv.y) < cv.w:
+				claimed = true
+				break
+		if claimed:
+			continue
 		_place_building_v4(plot, center)
 		plot_count += 1
+
+# v5.5 hero claims: (x, z, half_w, half_d) of ground reserved for
+# the Sketchfab landmark buildings.
+func _skf_claims_v55() -> Array:
+	return [
+		Vector4(-52.0, -140.0, 18.0, 18.0),
+		Vector4(146.0, -24.0, 21.0, 21.0),
+		Vector4(-84.0, 152.0, 24.0, 15.0),
+		Vector4(-186.0, 104.0, 23.0, 25.0),
+		Vector4(58.0, 130.0, 11.0, 9.0),
+	]
+
+# v5.5: Sketchfab landmark buildings + street props (all CC-BY,
+# credited in the title panel). Models were cleaned in Blender
+# (joined, decimated, textures <=512, base at origin, metres).
+# dims are the cleaned models' real sizes (w, h, d).
+func _build_heroes_v55() -> void:
+	var defs: Array = [
+		# name, x, z, rot_y, scale, dims, dim_factor
+		["sky_t_021", -52.0, -140.0, 0.0, 1.0, Vector3(25.0, 96.5, 24.7), 1.25],
+		["revolving_tower", 146.0, -24.0, 0.4, 0.62, Vector3(49.0, 120.0, 49.5), 0.40],
+		["bg_apartment", -84.0, 152.0, 0.0, 1.0, Vector3(36.3, 31.0, 18.7), 2.6],
+		["iqinso_hotel", -186.0, 104.0, 0.3, 1.0, Vector3(33.3, 22.0, 33.5), 1.5],
+		["milk_peach", 58.0, 130.0, 0.0, 1.15, Vector3(10.2, 11.0, 6.1), 1.5],
+	]
+	for d in defs:
+		var inst: Node3D = ModelLoader.load_model(
+			"res://assets/skf/" + String(d[0]) + ".glb",
+			"res://assets/skf_data/" + String(d[0]) + ".tres")
+		if inst == null:
+			continue
+		var sc: float = float(d[4])
+		var dims := d[5] as Vector3
+		inst.position = Vector3(float(d[1]), _terrain_height(float(d[1]), float(d[2])), float(d[2]))
+		inst.rotation.y = float(d[3])
+		inst.scale = Vector3.ONE * sc
+		inst.name = "Skf_" + String(d[0])
+		add_child(inst)
+		if absf(float(d[6]) - 1.0) > 0.01:
+			_dim_model_v55(inst, float(d[6]))
+		_add_collider(inst, dims, Vector3(0, dims.y * 0.5, 0))
+		_buildings.append({"center": inst.position,
+			"fp": Vector2(dims.x * sc, dims.z * sc),
+			"height": dims.y * sc, "rot": float(d[3])})
+		skf_hero_count += 1
+	# Street props: noodle vending booth + vending machine on the
+	# market street, one more vending machine by the pharmacy.
+	_place_prop_v55("noodle_vending", Vector3(-16.0, 0.0, 133.5), 0.5,
+		Vector3(2.0, 2.0, 3.7), 1.0, Color.WHITE)
+	_place_prop_v55("vending", Vector3(44.0, 0.0, 133.0), -0.3,
+		Vector3(1.6, 1.9, 1.6), 1.0, Color(0.45, 0.55, 0.7))
+	_place_prop_v55("vending", Vector3(38.5, 0.0, 10.5), 2.8,
+		Vector3(1.6, 1.9, 1.6), 1.0, Color(0.7, 0.4, 0.45))
+
+func _place_prop_v55(pname: String, pos: Vector3, rot_y: float,
+		dims: Vector3, sc: float, tint: Color) -> void:
+	var inst: Node3D = ModelLoader.load_model(
+		"res://assets/skf/" + pname + ".glb",
+		"res://assets/skf_data/" + pname + ".tres")
+	if inst == null:
+		return
+	inst.position = Vector3(pos.x, _terrain_height(pos.x, pos.z), pos.z)
+	inst.rotation.y = rot_y
+	inst.scale = Vector3.ONE * sc
+	inst.name = "SkfProp_" + pname
+	add_child(inst)
+	if tint != Color.WHITE:
+		_paint_model_v55(inst, tint)
+	_add_collider(inst, dims, Vector3(0, dims.y * 0.5, 0))
+	skf_hero_count += 1
+
+# Multiply every surface's albedo by f (keeps textures, darkens the
+# whole model — used for the white revolving tower sculpture).
+func _dim_model_v55(node: Node, f: float) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for i in range(mi.mesh.get_surface_count()):
+				var m: Material = mi.mesh.surface_get_material(i)
+				if m is StandardMaterial3D:
+					var dup := (m as StandardMaterial3D).duplicate() as StandardMaterial3D
+					var c: Color = dup.albedo_color
+					dup.albedo_color = Color(c.r * f, c.g * f, c.b * f, c.a)
+					mi.set_surface_override_material(i, dup)
+	for c in node.get_children():
+		_dim_model_v55(c, f)
+
+# Replace every surface with a flat material of one colour (the
+# vending model ships untextured; a flat colour reads better).
+func _paint_model_v55(node: Node, tint: Color) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var pm := StandardMaterial3D.new()
+		pm.albedo_color = tint
+		pm.roughness = 0.6
+		pm.metallic = 0.3
+		mi.material_override = pm
+	for c in node.get_children():
+		_paint_model_v55(c, tint)
 
 func _place_building_v4(plot: Dictionary, center: Vector3) -> void:
 	var style: String = String(plot["style"])
@@ -1598,19 +1712,30 @@ func _build_air_traffic() -> void:
 		for k in range(3):
 			var root := Node3D.new()
 			root.name = "AirAV"
-			var body := MeshInstance3D.new()
-			var bm := BoxMesh.new()
-			bm.size = Vector3(2.1, 1.0, 4.8)
-			body.mesh = bm
-			body.material_override = body_mat
-			root.add_child(body)
-			var strip := MeshInstance3D.new()
-			var sm2 := BoxMesh.new()
-			sm2.size = Vector3(2.14, 0.32, 2.2)
-			strip.mesh = sm2
-			strip.material_override = strip_mat
-			strip.position = Vector3(0, 0.12, -0.9)
-			root.add_child(strip)
+			# v5.5: real flying-car model (Mitya Petrov, CC-BY) with
+			# the light trail kept; box body is the fallback. The
+			# model's nose is +Z, the AV frame flies toward -Z.
+			var av_model: Node3D = ModelLoader.load_model(
+				"res://assets/skf/flying_car2.glb",
+				"res://assets/skf_data/flying_car2.tres")
+			if av_model != null:
+				av_model.rotation.y = PI
+				av_model.position.y = -0.4
+				root.add_child(av_model)
+			else:
+				var body := MeshInstance3D.new()
+				var bm := BoxMesh.new()
+				bm.size = Vector3(2.1, 1.0, 4.8)
+				body.mesh = bm
+				body.material_override = body_mat
+				root.add_child(body)
+				var strip := MeshInstance3D.new()
+				var sm2 := BoxMesh.new()
+				sm2.size = Vector3(2.14, 0.32, 2.2)
+				strip.mesh = sm2
+				strip.material_override = strip_mat
+				strip.position = Vector3(0, 0.12, -0.9)
+				root.add_child(strip)
 			var tail := MeshInstance3D.new()
 			var tm := BoxMesh.new()
 			tm.size = Vector3(2.14, 0.22, 0.3)

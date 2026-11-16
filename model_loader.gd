@@ -26,23 +26,54 @@ static func load_model(glb_path: String, tres_override: String = "") -> Node3D:
 		var blob: Resource = load(tres_path)
 		if blob == null or not (blob is ModelBlob):
 			return null
-		var doc := GLTFDocument.new()
-		var state := GLTFState.new()
-		if doc.append_from_buffer((blob as ModelBlob).data, "", state) != OK:
-			return null
-		var node: Node = doc.generate_scene(state)
-		if node == null:
-			return null
-		_complete_bone_tracks(node)
-		var packed := PackedScene.new()
-		if packed.pack(node) == OK:
-			_cache[glb_path] = packed
-			inst = packed.instantiate() as Node3D
-		else:
-			inst = node as Node3D
+		inst = _instance_from_bytes(glb_path, (blob as ModelBlob).data)
 	if inst != null:
 		_repair_materials(inst)
 	return inst
+
+## Like load_model's blob route, but the GLB bytes are split across
+## several ModelBlob .tres files (concatenated in order). Used for
+## the v5.5 protagonist: a single tres would be ~12 MB of base64,
+## over the GitHub push body limit (~3 MB per file is proven safe).
+static func load_model_parts(glb_path: String, part_paths: Array) -> Node3D:
+	var inst: Node3D = null
+	if ResourceLoader.exists(glb_path):
+		var ps: PackedScene = load(glb_path) as PackedScene
+		if ps != null:
+			inst = ps.instantiate() as Node3D
+	if inst == null and _cache.has(glb_path):
+		var cached: PackedScene = _cache[glb_path] as PackedScene
+		if cached != null:
+			inst = cached.instantiate() as Node3D
+	if inst == null:
+		var data := PackedByteArray()
+		for pp in part_paths:
+			var p: String = str(pp)
+			if not ResourceLoader.exists(p):
+				return null
+			var blob: Resource = load(p)
+			if blob == null or not (blob is ModelBlob):
+				return null
+			data.append_array((blob as ModelBlob).data)
+		inst = _instance_from_bytes(glb_path, data)
+	if inst != null:
+		_repair_materials(inst)
+	return inst
+
+static func _instance_from_bytes(glb_path: String, data: PackedByteArray) -> Node3D:
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	if doc.append_from_buffer(data, "", state) != OK:
+		return null
+	var node: Node = doc.generate_scene(state)
+	if node == null:
+		return null
+	_complete_bone_tracks(node)
+	var packed := PackedScene.new()
+	if packed.pack(node) == OK:
+		_cache[glb_path] = packed
+		return packed.instantiate() as Node3D
+	return node as Node3D
 
 ## The runtime glTF importer (the web build's only route — the repo
 ## carries no .glb files) drops bone tracks whose pose is constant in

@@ -76,7 +76,7 @@ func _ready() -> void:
 		"res://assets/font_data/rajdhani_bold.tres")
 	hud.call("build", game_font, latin_font)
 	hud.call("show_panel", "NEON CITY 2099",
-		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、GAS/BRK（W/S）で前後、左スティック上下（Space/Shift）で昇降\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。",
+		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、GAS/BRK（W/S）で前後、左スティック上下（Space/Shift）で昇降\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。\n\n3Dモデル: SKY T 021 by AL3K / Apartment by Jungle Jim / Milk&Peach by Malilynn / Hotel by IQINSO / Tower by Ayman.Ibrahim / Hovercar by Lionsharp Studios (CC BY-SA) / Sci-fi car by Boberemn / Flying car by Mitya Petrov / Vending by samborn & thekillinggmoon / 主人公 Cyberpunk character by 4d_Bob（いずれも CC BY、Sketchfab）",
 		"スタート")
 
 func _build_environment() -> void:
@@ -93,11 +93,19 @@ func _build_environment() -> void:
 	# teal-grey, buildings stand as dark masses against it, and the
 	# light in the scene comes from signs and screens. So: light
 	# sky, cool ambient, denser blue-grey haze.
-	sky_mat.sky_top_color = Color(0.16, 0.24, 0.29)
-	sky_mat.sky_horizon_color = Color(0.58, 0.52, 0.42)
-	sky_mat.sky_curve = 0.10
-	sky_mat.ground_bottom_color = Color(0.03, 0.035, 0.045)
-	sky_mat.ground_horizon_color = Color(0.23, 0.25, 0.26)
+	# v5.5 AAA pass (diff #1-3): the v4 grade's flat ambient (1.02)
+	# and pale fog washed every value into one grey-blue — CP2077
+	# keeps deep contrast in the near/mid field (dark masses vs lit
+	# accents) and melts only the distance into COLOURED haze. So:
+	# darker zenith, tighter warm horizon band, ambient cut to ~0.6
+	# with a stronger directional moon for value separation, fog
+	# colour deepened to teal and its sky-affect lowered so distant
+	# silhouettes stay darker than the sky behind them.
+	sky_mat.sky_top_color = Color(0.07, 0.12, 0.18)
+	sky_mat.sky_horizon_color = Color(0.46, 0.42, 0.33)
+	sky_mat.sky_curve = 0.06
+	sky_mat.ground_bottom_color = Color(0.02, 0.025, 0.035)
+	sky_mat.ground_horizon_color = Color(0.10, 0.13, 0.15)
 	sky_mat.ground_curve = 0.08
 	sky_mat.sun_angle_max = 30.0
 	sky_mat.sun_curve = 0.02
@@ -106,25 +114,33 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.48, 0.56, 0.60)
-	env.ambient_light_energy = 1.02
+	env.ambient_light_color = Color(0.36, 0.44, 0.52)
+	env.ambient_light_energy = 0.68
 	env.fog_enabled = true
-	# Blue-grey aerial perspective: distance melts into light haze
-	# (the reference's depth cue), not into blackness.
-	env.fog_light_color = Color(0.33, 0.39, 0.43)
-	env.fog_density = 0.0085
-	env.fog_sky_affect = 0.75
+	# Deep teal aerial perspective: distance melts into dark haze,
+	# not into milk.
+	env.fog_light_color = Color(0.15, 0.21, 0.26)
+	env.fog_density = 0.0082
+	env.fog_sky_affect = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.adjustment_enabled = true
-	env.adjustment_brightness = 1.12
-	env.adjustment_contrast = 1.04
-	env.adjustment_saturation = 1.02
+	env.adjustment_brightness = 1.06
+	env.adjustment_contrast = 1.14
+	env.adjustment_saturation = 1.12
+	# v5.5 (diff #8): glow DOES work on the Compatibility pipeline
+	# (verified by pixel diff + eyeball, tests/v55_glow.gd) — neon
+	# finally bleeds light. Kept modest: the device renders brights
+	# hotter than llvmpipe, and fullscreen passes cost fps.
+	env.glow_enabled = true
+	env.glow_intensity = 0.55
+	env.glow_strength = 0.9
+	env.glow_bloom = 0.08
 	we.environment = env
 	add_child(we)
 	var moon := DirectionalLight3D.new()
 	moon.rotation_degrees = Vector3(-42, 35, 0)
-	moon.light_color = Color(0.62, 0.72, 0.82)
-	moon.light_energy = 0.55
+	moon.light_color = Color(0.55, 0.68, 0.85)
+	moon.light_energy = 0.78
 	moon.shadow_enabled = false
 	add_child(moon)
 

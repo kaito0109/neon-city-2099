@@ -68,8 +68,10 @@ func _ready() -> void:
 func _build_model() -> void:
 	_model = Node3D.new()
 	add_child(_model)
-	# Quaternius "Punk" (CC0) — mohawk runner, full rig + clip set.
-	var inst: Node3D = People.spawn("Punk")
+	# Protagonist (v5.5): "Cyberpunk character" by 4d_Bob (CC BY,
+	# Sketchfab) — Punk's Idle/Walk/Run/Roll retargeted onto its rig
+	# in Blender (see blender/retarget.py).
+	var inst: Node3D = People.spawn("Cyber")
 	if inst != null:
 		_model.add_child(inst)
 		_anim = People.find_ap(inst)

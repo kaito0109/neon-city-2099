@@ -30,6 +30,10 @@ const ACCEL: float = 16.0
 
 func build(color: Color) -> void:
 	body_color = color
+	# v5.5: alternate the Sketchfab car models across the fleet
+	# (spawn order is deterministic: parked cars first).
+	model_variant = _spawn_seq % MODEL_VARIANTS.size()
+	_spawn_seq += 1
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(1.9, 1.0, 4.3)
@@ -106,6 +110,18 @@ func _cone_texture() -> ImageTexture:
 
 const MODEL_PATH := "res://assets/models/hover_car.glb"
 
+# v5.5: real modelled cars from Sketchfab (CC-BY, credited in the
+# title panel). Variant 0 = Lionsharp hovercar (nose at Blender -Y
+# -> +Z in Godot mesh space, verified by material-centroid analysis
+# of the headlight/thruster clusters), 1 = Boberemn sci-fi car
+# (nose +Z, verified visually). Both rotate PI to face -Z forward.
+const MODEL_VARIANTS: Array = [
+	["res://assets/skf/hovercar.glb", "res://assets/skf_data/hovercar.tres"],
+	["res://assets/skf/scifi_car.glb", "res://assets/skf_data/scifi_car.tres"],
+]
+static var _spawn_seq: int = 0
+var model_variant: int = 0
+
 func _try_blender_model() -> bool:
 	# v1.2: Blender-modeled hover car (beveled wedge hull, glass canopy,
 	# thruster pods, rear wing). In imported mesh space the nose sits at
@@ -113,7 +129,10 @@ func _try_blender_model() -> bool:
 	# forward. Guarded by tests/v12_test.gd (in-frame centroid check —
 	# transforms read in _initialize are stale and mislead; the in-game
 	# check is authoritative).
-	var inst: Node3D = ModelLoader.load_model(MODEL_PATH)
+	var pair: Array = MODEL_VARIANTS[model_variant]
+	var inst: Node3D = ModelLoader.load_model(String(pair[0]), String(pair[1]))
+	if inst == null:
+		inst = ModelLoader.load_model(MODEL_PATH)
 	if inst == null:
 		return false
 	inst.rotation.y = PI

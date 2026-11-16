@@ -8,6 +8,7 @@ extends RefCounted
 
 const CAST: Dictionary = {
 	"Punk": {"path": "res://assets/people_q/opt/Punk.glb", "tres": "res://assets/people_data/Punk.tres", "scale": 1.0},
+	"Cyber": {"path": "res://assets/skf/cyberpunk_character.glb", "parts": ["res://assets/skf_data/cyberpunk_character_p0.tres", "res://assets/skf_data/cyberpunk_character_p1.tres", "res://assets/skf_data/cyberpunk_character_p2.tres", "res://assets/skf_data/cyberpunk_character_p3.tres"], "scale": 1.0},
 	"Casual": {"path": "res://assets/people_q/opt/Casual.glb", "tres": "res://assets/people_data/Casual.tres", "scale": 1.0},
 	"CasualCharacter": {"path": "res://assets/people_q/opt/CasualCharacter.glb", "tres": "res://assets/people_data/CasualCharacter.tres", "scale": 1.0},
 	"Suit": {"path": "res://assets/people_q/opt/Suit.glb", "tres": "res://assets/people_data/Suit.tres", "scale": 1.0},
@@ -23,7 +24,11 @@ static func spawn(cast_name: String) -> Node3D:
 	var info: Dictionary = CAST.get(cast_name, {})
 	if info.is_empty():
 		return null
-	var inst: Node3D = ModelLoader.load_model(info["path"], info["tres"])
+	var inst: Node3D = null
+	if info.has("parts"):
+		inst = ModelLoader.load_model_parts(info["path"], info["parts"])
+	else:
+		inst = ModelLoader.load_model(info["path"], info["tres"])
 	if inst != null:
 		var s: float = float(info["scale"])
 		if not is_equal_approx(s, 1.0):
