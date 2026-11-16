@@ -225,6 +225,17 @@ func _ground_y_below() -> float:
 	_ground_normal = hit["normal"] as Vector3
 	return float((hit["position"] as Vector3).y)
 
+## v5.3: height probe at a horizontal offset (wheel positions), for
+## seam-free slope estimation. Returns -9999 when nothing is below.
+func _ground_y_at(off: Vector3) -> float:
+	var base: Vector3 = global_position + off
+	var q := PhysicsRayQueryParameters3D.create(base + Vector3(0, 1.2, 0), base + Vector3(0, -6.0, 0))
+	q.exclude = [get_rid()]
+	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return -9999.0
+	return float((hit["position"] as Vector3).y)
+
 func set_traffic(block_center: Vector3, half: float) -> void:
 	mode = "traffic"
 	if _cone != null:
@@ -349,6 +360,16 @@ func _drive(delta: float) -> void:
 	else:
 		_body.rotation.x = lerpf(_body.rotation.x, 0.0, delta * 5.0)
 		var target: float = throttle * (MAX_SPEED if throttle >= 0.0 else -REV_SPEED)  # REV_SPEED is signed (-9)
+		# v5.3: off-road bog — the authored road ribbons are nearly
+		# flat (grades <= ~0.15 rad) while the banks between terraces
+		# tilt past 0.3 rad. On steep ground the car bogs down to a
+		# crawl instead of hill-climbing at full pace, which is what
+		# made driving off-road feel exactly like driving on-road.
+		if is_on_floor():
+			var tilt: float = Vector2(_slope_pitch, _slope_roll).length()
+			if tilt > 0.30:
+				var bog: float = clampf((tilt - 0.30) / 0.25, 0.0, 1.0)
+				target = clampf(target * lerpf(1.0, 0.3, bog), -7.0, 7.0)
 		var rate: float = ACCEL if signf(target) == signf(speed) or absf(speed) < 0.5 else ACCEL * 2.2
 		speed = move_toward(speed, target, rate * delta)
 		if absf(speed) > 0.2:
@@ -384,8 +405,23 @@ func _drive(delta: float) -> void:
 		if not flying and is_on_floor() and _ground_normal.y > 0.5:
 			var fwd2 := Vector3(-sin(heading), 0, -cos(heading))
 			var right2 := Vector3(cos(heading), 0, -sin(heading))
-			target_pitch = clampf(asin(clampf(-_ground_normal.dot(fwd2), -1.0, 1.0)), -0.5, 0.5)
-			target_roll = clampf(asin(clampf(-_ground_normal.dot(right2), -1.0, 1.0)), -0.5, 0.5)
+			# v5.3: derive the slope from four height probes at the
+			# wheel positions instead of the single raycast normal.
+			# Heights are continuous across the heightfield's triangle
+			# seams; the normal (and therefore the old target) stepped
+			# at every seam, which read as the body jerking on ramps
+			# and bridges. Falls back to the normal at deck edges and
+			# other spots a probe can miss.
+			var hF: float = _ground_y_at(fwd2 * 2.1)
+			var hB: float = _ground_y_at(-fwd2 * 2.1)
+			var hR: float = _ground_y_at(right2 * 1.15)
+			var hL: float = _ground_y_at(-right2 * 1.15)
+			if hF > -9000.0 and hB > -9000.0 and hR > -9000.0 and hL > -9000.0:
+				target_pitch = clampf(atan2(hF - hB, 4.2), -0.5, 0.5)
+				target_roll = clampf(atan2(hR - hL, 2.3), -0.5, 0.5)
+			else:
+				target_pitch = clampf(asin(clampf(-_ground_normal.dot(fwd2), -1.0, 1.0)), -0.5, 0.5)
+				target_roll = clampf(asin(clampf(-_ground_normal.dot(right2), -1.0, 1.0)), -0.5, 0.5)
 		var kk: float = clampf(delta * 6.0, 0.0, 1.0)
 		_slope_pitch = lerpf(_slope_pitch, target_pitch, kk)
 		_slope_roll = lerpf(_slope_roll, target_roll, kk)

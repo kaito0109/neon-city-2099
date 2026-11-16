@@ -705,3 +705,11 @@ every animation gains a rest-pose key for every bone track it lacks
 0.12/2.2); gait extremes unchanged while running. NPCs share the
 route, so the whole cast is repaired at once. v5.1's landing/roll
 hardening stays (independent, harmless).
+
+## v5.3 roads & car feel (2026-11-16, his report: roads incomplete, car feels off)
+- Diagnosis (tests/v51_cardrive.gd photos): terraces are smooth bare mounds with roads painted on; dashes stopped at the canal banks; the skyway's underside was cracked lot; the car's slope target came from a single raycast normal that steps at every heightfield triangle seam.
+- Car: slope target now derived from 4 height probes at the wheel positions (heights are continuous across seams; normal fallback when a probe misses). Off-road bog: grounded tilt > 0.30 rad (banks, not the flattened road ribbons at <= ~0.15 rad) scales drive target down to a 7 m/s crawl — verified: bank leg max speed exactly 7.0, road leg unaffected (tests/v52_numbers.gd).
+- Roadworks (world_v4._build_roadworks_v53, layout-driven, visual only): retaining walls + pale caps wherever a road edge drops > 1.1 m (wall plane at the edge, foot sampled 6.5 m out so the exposed face reads tall); center dashes across the 3 canal bridges (ns/e/w); asphalt apron + dashes under the skyway deck.
+- Bridge integrity probed (tests/v52_bridgeprobe.gd): heightfield and physics hold 0.16 across all spans. An apparent "car stops at the bridge" in early numbers runs was a test-harness artifact (teleport-drop + render-frame timing leaving the car unsettled at the 16 cm bridge step); a settled drive crosses at full speed (tests/v52_bridgedrive.gd).
+- Known remainder: the terrace LANDSCAPE is still smooth mounds — a true fix reshapes the height profile (stepped benches) in BOTH blender/build_terrain_v4.py and _height_smooth_gd in sync; proposed as v5.4, not bundled here.
+- Suites: v45 6/6, v24 23/23, v18, v21, v42 5/5 headless; v15 4/4, v20 6/6 under Xvfb. Device confirmation pending (tilt feel, bog feel, wall read).

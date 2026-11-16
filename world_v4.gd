@@ -47,6 +47,7 @@ func build(font: Font) -> void:
 	_build_plinth_v4()
 	_build_plaza_marks()
 	_build_air_traffic()
+	_build_roadworks_v53()
 
 ## Dawn sky override: at 3:52 AM there are no visible stars — the
 ## pale light-polluted sky swallows them. Keep only a faint moon.
@@ -1641,3 +1642,149 @@ func _process(delta: float) -> void:
 		var p: Vector3 = (e["from"] as Vector3) + (e["dir"] as Vector3) * float(e["d"])
 		p.y += sin(Time.get_ticks_msec() * 0.001 + float(e["ph"])) * 0.35
 		n.global_position = p
+
+# --- v5.3 roadworks ---------------------------------------------------
+## His 2026-11-16 report: the roads feel incomplete and the cars feel
+## wrong on them. Three dressings, all derived from the layout data:
+## 1) Retaining walls with a pale cap wherever a road's edge drops
+##    more than ~1 m (terrace switchbacks, avenue climbs, bridge
+##    parapets) — roads read as carved into the hill, not painted on.
+## 2) Center dashes across the three canal bridges (the road entries
+##    stop at the banks, so the baked dashes stopped too).
+## 3) An asphalt apron under the skyway deck, with its own dashes —
+##    the deck's underside was bare cracked lot.
+## Walls are visual only; the collision heightfield is unchanged.
+
+func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
+	st.add_vertex(a)
+	st.add_vertex(c)
+	st.add_vertex(d)
+
+func _dash(st: SurfaceTool, center: Vector2, dirv: Vector2, y: float) -> void:
+	var fwd := Vector3(dirv.x, 0, dirv.y) * 1.5
+	var rgt := Vector3(-dirv.y, 0, dirv.x) * 0.18
+	var c := Vector3(center.x, y, center.y)
+	_quad(st, c - fwd - rgt, c - fwd + rgt, c + fwd + rgt, c + fwd - rgt)
+
+func _build_roadworks_v53() -> void:
+	var wall_st := SurfaceTool.new()
+	wall_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var trim_st := SurfaceTool.new()
+	trim_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# 1) Retaining walls + caps along dropping road edges.
+	for road in _layout["roads"]:
+		if String(road["kind"]) == "deck":
+			continue
+		var pts: Array = road["pts"]
+		var w: float = float(road["w"])
+		for i in range(pts.size() - 1):
+			var a := Vector2(float(pts[i][0]), float(pts[i][1]))
+			var b := Vector2(float(pts[i + 1][0]), float(pts[i + 1][1]))
+			var seg: Vector2 = b - a
+			var seglen: float = seg.length()
+			if seglen < 2.0:
+				continue
+			var dirv: Vector2 = seg / seglen
+			var perp := Vector2(-dirv.y, dirv.x)
+			var steps: int = maxi(1, int(seglen / 3.0))
+			for side in [-1.0, 1.0]:
+				var p_top := Vector3.ZERO
+				var p_bot := Vector3.ZERO
+				var p_ok: bool = false
+				for k in range(steps + 1):
+					var t: float = seglen * float(k) / float(steps)
+					var c: Vector2 = a + dirv * t
+					var e: Vector2 = c + perp * (side * (w * 0.5 + 0.15))
+					var o: Vector2 = c + perp * (side * (w * 0.5 + 3.4))
+					var o2: Vector2 = c + perp * (side * (w * 0.5 + 6.5))
+					var h_e: float = _terrain_height(e.x, e.y)
+					var h_o: float = _terrain_height(o.x, o.y)
+					var ok: bool = h_e - h_o > 1.1
+					var top := Vector3(e.x, h_e + 0.30, e.y)
+					# The wall plane stands at the road edge but reaches
+					# down to the height 6.5 m out: on a smooth bank the
+					# lower part is buried in the slope and the exposed
+					# face reads twice as tall (v5.3 PDCA round 1).
+					var bot := Vector3(e.x, _terrain_height(o2.x, o2.y) - 0.4, e.y)
+					if ok and p_ok:
+						_quad(wall_st, p_top, top, bot, p_bot)
+						var po := Vector3(perp.x * side * 0.45, 0, perp.y * side * 0.45)
+						_quad(trim_st, p_top, p_top + po, top + po, top)
+					p_top = top
+					p_bot = bot
+					p_ok = ok
+	# 2) Dashes across the canal bridges.
+	var connectors: Array = [["ns_main", "ns_south"], ["e_st", "e_south"], ["w_st", "w_south"]]
+	var by_name: Dictionary = {}
+	for road in _layout["roads"]:
+		by_name[String(road["name"])] = road
+	for pair in connectors:
+		if not by_name.has(pair[0]) or not by_name.has(pair[1]):
+			continue
+		var npts: Array = by_name[pair[0]]["pts"]
+		var spts: Array = by_name[pair[1]]["pts"]
+		var a := Vector2(float(npts[npts.size() - 1][0]), float(npts[npts.size() - 1][1]))
+		var b := Vector2(float(spts[0][0]), float(spts[0][1]))
+		var seg: Vector2 = b - a
+		var seglen: float = seg.length()
+		if seglen < 4.0:
+			continue
+		var dirv: Vector2 = seg / seglen
+		var t: float = 2.0
+		while t < seglen - 1.0:
+			var c: Vector2 = a + dirv * t
+			_dash(trim_st, c, dirv, _terrain_height(c.x, c.y) + 0.09)
+			t += 5.5
+	# 3) Apron + dashes under the skyway deck.
+	var ap_st := SurfaceTool.new()
+	ap_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var dp: Array = _layout["deck"]
+	for i in range(dp.size() - 1):
+		var a := Vector2(float(dp[i][0]), float(dp[i][1]))
+		var b := Vector2(float(dp[i + 1][0]), float(dp[i + 1][1]))
+		var seg: Vector2 = b - a
+		var seglen: float = seg.length()
+		if seglen < 2.0:
+			continue
+		var dirv: Vector2 = seg / seglen
+		var perp := Vector2(-dirv.y, dirv.x)
+		var steps: int = maxi(1, int(seglen / 6.0))
+		var pl := Vector3.ZERO
+		var pr := Vector3.ZERO
+		for k in range(steps + 1):
+			var t: float = seglen * float(k) / float(steps)
+			var c: Vector2 = a + dirv * t
+			var lp: Vector2 = c + perp * 13.0
+			var rp: Vector2 = c - perp * 13.0
+			var lv := Vector3(lp.x, _terrain_height(lp.x, lp.y) + 0.06, lp.y)
+			var rv := Vector3(rp.x, _terrain_height(rp.x, rp.y) + 0.06, rp.y)
+			if k > 0:
+				_quad(ap_st, pl, lv, rv, pr)
+			pl = lv
+			pr = rv
+		var td: float = 5.0
+		while td < seglen - 2.0:
+			var c2: Vector2 = a + dirv * td
+			_dash(trim_st, c2, dirv, _terrain_height(c2.x, c2.y) + 0.12)
+			td += 11.0
+	var wall_mesh := MeshInstance3D.new()
+	wall_mesh.name = "V53Walls"
+	wall_st.generate_normals()
+	wall_mesh.mesh = wall_st.commit()
+	wall_mesh.material_override = _terrain_mat("WallMat")
+	add_child(wall_mesh)
+	var trim_mesh := MeshInstance3D.new()
+	trim_mesh.name = "V53Trim"
+	trim_st.generate_normals()
+	trim_mesh.mesh = trim_st.commit()
+	trim_mesh.material_override = _terrain_mat("LineMat")
+	add_child(trim_mesh)
+	var apron := MeshInstance3D.new()
+	apron.name = "V53Apron"
+	ap_st.generate_normals()
+	apron.mesh = ap_st.commit()
+	apron.material_override = _terrain_mat("RoadMat")
+	add_child(apron)
