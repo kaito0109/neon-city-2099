@@ -87,6 +87,10 @@ func _build_model() -> void:
 		cap.material_override = m
 		_model.add_child(cap)
 
+func set_camera_dist(d: float) -> void:
+	if _spring != null:
+		_spring.spring_length = d
+
 func make_camera_current() -> void:
 	if _camera != null:
 		_camera.make_current()
@@ -137,6 +141,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			var main2: Node = get_tree().get_first_node_in_group("main")
 			if main2 != null:
 				main2.call("interact")
+		elif k.keycode == KEY_H:
+			var main3: Node = get_tree().get_first_node_in_group("main")
+			if main3 != null:
+				main3.call("use_item")
 
 func _ray_hit(from: Vector3, dir: Vector3, len: float) -> Dictionary:
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * len)

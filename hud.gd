@@ -133,6 +133,7 @@ func build(font: Font, latin: Font = null) -> void:
 	_mk_touch_button("GAS", "GAS")
 	_mk_touch_button("BRK", "BRK")
 	_mk_touch_button("MAP", "MAP")
+	_mk_touch_button("ITEM", "ITEM")
 	touch_buttons["ACT"].pressed.connect(func() -> void: main.call("interact"))
 	touch_buttons["JUMP"].button_down.connect(func() -> void:
 		if player.get("in_car") != null:
@@ -146,6 +147,7 @@ func build(font: Font, latin: Font = null) -> void:
 	touch_buttons["BRK"].button_down.connect(func() -> void: _brk = true)
 	touch_buttons["BRK"].button_up.connect(func() -> void: _brk = false)
 	touch_buttons["MAP"].pressed.connect(func() -> void: _toggle_big_map())
+	touch_buttons["ITEM"].pressed.connect(func() -> void: main.call("use_item"))
 	# Rotate notice.
 	rotate_notice = ColorRect.new()
 	rotate_notice.color = Color(0, 0, 0, 0.62)
@@ -237,6 +239,7 @@ func _layout() -> void:
 	touch_buttons["JUMP"].position = Vector2(vp.x - 196, vp.y - 108)
 	touch_buttons["DASH"].position = Vector2(vp.x - 108, vp.y - 288)
 	touch_buttons["MAP"].position = Vector2(vp.x - 196, vp.y - 380)
+	touch_buttons["ITEM"].position = Vector2(vp.x - 196, vp.y - 288)
 	touch_buttons["GAS"].position = Vector2(vp.x - 108, vp.y - 196)
 	touch_buttons["BRK"].position = Vector2(vp.x - 196, vp.y - 196)
 	panel.position = Vector2((vp.x - 600) * 0.5, (vp.y - 448) * 0.5)
@@ -272,6 +275,11 @@ func set_stats(hp: float, money: int, wanted: int, clock_str: String) -> void:
 
 func set_mission(text: String) -> void:
 	mission_label.text = text
+
+var _item_count: int = 0
+
+func set_item_count(n: int) -> void:
+	_item_count = n
 
 func set_prompt(text: String) -> void:
 	prompt_label.text = text
@@ -319,6 +327,8 @@ func _process(delta: float) -> void:
 		else:
 			touch_buttons["JUMP"].text = "JUMP"
 		touch_buttons["DASH"].visible = not driving
+		touch_buttons["ITEM"].visible = not driving and _item_count > 0
+		touch_buttons["ITEM"].text = "ITEM ×%d" % _item_count
 		# ACT shares its spot with GAS; while driving, move ACT to the
 		# (hidden) DASH slot so the exit button stays tappable.
 		touch_buttons["ACT"].position = Vector2(vsize.x - 108, vsize.y - 288) if driving \

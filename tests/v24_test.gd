@@ -49,7 +49,8 @@ func _physics_process(_delta: float) -> bool:
 		_ok(absf(_ground_at(10, 20) - 0.06) < 0.4, "plaza ground %.2f" % _ground_at(10, 20))
 		_ok(absf(_ground_at(196, -205) - 18.0) < 0.6, "hilltop ground %.2f" % _ground_at(196, -205))
 		_ok(absf(_ground_at(0, -66) - 10.05) < 0.5, "skyway deck %.2f" % _ground_at(0, -66))
-		_ok(absf(_ground_at(-60, 179) + 2.7) < 0.6, "canal floor %.2f" % _ground_at(-60, 179))
+		_ok(absf(_ground_at(60, 179) + 2.7) < 0.6, "canal floor %.2f" % _ground_at(60, 179))
+		_ok(absf(_ground_at(-60, 179) - 3.2) < 0.3, "footbridge deck %.2f" % _ground_at(-60, 179))
 		_ok(absf(_ground_at(0, 177) - 0.16) < 0.5, "canal bridge %.2f" % _ground_at(0, 177))
 		# A traffic car to watch.
 		for c in main.get("_cars"):

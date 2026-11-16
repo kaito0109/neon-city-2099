@@ -48,6 +48,8 @@ func build(font: Font) -> void:
 	_build_plaza_marks()
 	_build_air_traffic()
 	_build_roadworks_v53()
+	_build_shops()
+	_build_footbridge()
 
 ## Dawn sky override: at 3:52 AM there are no visible stars — the
 ## pale light-polluted sky swallows them. Keep only a faint moon.
@@ -1788,3 +1790,262 @@ func _build_roadworks_v53() -> void:
 	apron.mesh = ap_st.commit()
 	apron.material_override = _terrain_mat("RoadMat")
 	add_child(apron)
+
+# --- v5.4 shops -------------------------------------------------------
+## His 2026-11-16 asks: buyable medicine, shop interiors (lots of
+## them), more jobs, a pedestrian bridge with climbable stairs.
+## Shops: a storefront panel on the street (door + neon sign) and a
+## full interior room built 40 m below the same spot (minimap stays
+## truthful; the fall-rescue is exempt while inside — see main.gd).
+## main.gd reads `shop_sites` for doors, buy spots and job targets.
+var shop_sites: Array = []
+
+const SHOP_DEFS: Array = [
+	{"name": "薬局ヒール堂", "kind": "pharmacy", "door": [35.5, 2.0], "face": [-1.0, 0.0],
+		"color": Color(0.25, 0.95, 0.55), "clerk": "Suit",
+		"items": [{"id": "medkit", "label": "医療キット", "price": 80, "heal": 60.0},
+			{"id": "drink", "label": "栄養ドリンク", "price": 30, "heal": 25.0}]},
+	{"name": "コンビニ ネオンマート", "kind": "mart", "door": [-35.5, -6.0], "face": [1.0, 0.0],
+		"color": Color(0.25, 0.85, 1.0), "clerk": "Casual",
+		"items": [{"id": "onigiri", "label": "おにぎり", "price": 15, "heal": 15.0},
+			{"id": "drink", "label": "栄養ドリンク", "price": 30, "heal": 25.0}]},
+	{"name": "麺屋サイバー", "kind": "ramen", "door": [-40.0, 131.5], "face": [0.0, 1.0],
+		"color": Color(1.0, 0.45, 0.2), "clerk": "Worker",
+		"items": [{"id": "ramen", "label": "ラーメン", "price": 50, "heal": 40.0}]},
+	{"name": "カフェ ドリップ", "kind": "cafe", "door": [30.0, 131.5], "face": [0.0, 1.0],
+		"color": Color(1.0, 0.8, 0.35), "clerk": "AnimatedWoman",
+		"items": [{"id": "coffee", "label": "コーヒー", "price": 20, "heal": 10.0},
+			{"id": "drink", "label": "栄養ドリンク", "price": 30, "heal": 25.0}]},
+	{"name": "電脳店デンキバ", "kind": "denki", "door": [10.0, 35.5], "face": [0.0, -1.0],
+		"color": Color(0.55, 0.5, 1.0), "clerk": "SciFi", "items": []},
+	{"name": "ブティック 2099", "kind": "boutique", "door": [116.5, 60.0], "face": [-1.0, 0.0],
+		"color": Color(1.0, 0.4, 0.75), "clerk": "WomanCasual", "items": []},
+]
+
+const ITEM_COLORS: Dictionary = {
+	"medkit": Color(0.95, 0.25, 0.3), "drink": Color(0.3, 0.85, 1.0),
+	"onigiri": Color(0.9, 0.92, 0.95), "ramen": Color(1.0, 0.55, 0.2),
+	"coffee": Color(0.65, 0.42, 0.25),
+}
+
+const CLERKS: Dictionary = {
+	"Suit": ["res://assets/people_q/opt/Suit.glb", "res://assets/people_data/Suit.tres"],
+	"Casual": ["res://assets/people_q/opt/Casual.glb", "res://assets/people_data/Casual.tres"],
+	"Worker": ["res://assets/people_q/opt/Worker.glb", "res://assets/people_data/Worker.tres"],
+	"AnimatedWoman": ["res://assets/people_q/opt/AnimatedWoman.glb", "res://assets/people_data/AnimatedWoman.tres"],
+	"SciFi": ["res://assets/people_q/opt/SciFi.glb", "res://assets/people_data/SciFi.tres"],
+	"WomanCasual": ["res://assets/people_q/opt/WomanCasual.glb", "res://assets/people_data/WomanCasual.tres"],
+}
+
+func _label3d(text: String, pos: Vector3, size: int, color: Color, parent: Node) -> Label3D:
+	var l := Label3D.new()
+	l.text = text
+	l.font = _font
+	l.font_size = size
+	l.modulate = color
+	l.outline_size = 8
+	l.outline_modulate = Color(0, 0, 0, 0.85)
+	l.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	l.position = pos
+	parent.add_child(l)
+	return l
+
+func _build_shops() -> void:
+	shop_sites.clear()
+	var wall_mat := _mat(Color(0.10, 0.11, 0.14), 0.0, 0.9)
+	var floor_mat := _mat(Color(0.16, 0.17, 0.20), 0.0, 0.6)
+	var dark_mat := _mat(Color(0.05, 0.05, 0.08), 0.0, 0.9)
+	var shelf_mat := _mat(Color(0.13, 0.14, 0.18), 0.0, 0.8)
+	for def in SHOP_DEFS:
+		var color: Color = def["color"]
+		var face := Vector2(float(def["face"][0]), float(def["face"][1]))
+		var door_xz := Vector2(float(def["door"][0]), float(def["door"][1]))
+		var gy: float = _terrain_height(door_xz.x, door_xz.y)
+		var accent := _mat(color, 1.6, 0.5)
+		# --- street storefront panel ---
+		var panel := Node3D.new()
+		panel.position = Vector3(door_xz.x, gy, door_xz.y)
+		panel.rotation.y = atan2(face.x, face.y)
+		add_child(panel)
+		_box(panel, Vector3(7.5, 4.6, 0.5), Vector3(0, 2.3, 0), _mat(Color(0.22, 0.24, 0.30), 0.0, 0.8), true)
+		_box(panel, Vector3(7.5, 0.9, 0.56), Vector3(0, 4.15, 0), accent)
+		_box(panel, Vector3(1.7, 2.7, 0.14), Vector3(0, 1.35, 0.28), _mat(Color(0.30, 0.45, 0.60), 0.35, 0.25))
+		_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(-2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
+		_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
+		var sign_l := _label3d(String(def["name"]), Vector3(0, 4.15, 0.5), 110, Color(1, 1, 1), panel)
+		sign_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# --- interior room, 40 m below the shop ---
+		var c := Vector3(door_xz.x, -40.0, door_xz.y)
+		var W: float = 18.0
+		var D: float = 12.0
+		var H: float = 4.0
+		_box(self, Vector3(W, 0.3, D), c + Vector3(0, -0.15, 0), floor_mat, true)
+		_box(self, Vector3(W, 0.3, D), c + Vector3(0, H + 0.15, 0), dark_mat, true)
+		_box(self, Vector3(W, H, 0.4), c + Vector3(0, H * 0.5, -D * 0.5), wall_mat, true)
+		_box(self, Vector3(W, H, 0.4), c + Vector3(0, H * 0.5, D * 0.5), wall_mat, true)
+		_box(self, Vector3(0.4, H, D), c + Vector3(-W * 0.5, H * 0.5, 0), wall_mat, true)
+		_box(self, Vector3(0.4, H, D), c + Vector3(W * 0.5, H * 0.5, 0), wall_mat, true)
+		# colour stripe + ceiling light panels + one warm light
+		_box(self, Vector3(W - 0.8, 0.28, 0.1), c + Vector3(0, 2.7, -D * 0.5 + 0.26), accent)
+		_box(self, Vector3(W - 0.8, 0.28, 0.1), c + Vector3(0, 2.7, D * 0.5 - 0.26), accent)
+		var lamp_mat := _mat(Color(0.95, 0.97, 1.0), 2.2, 0.4)
+		_box(self, Vector3(3.2, 0.08, 1.4), c + Vector3(-4, H - 0.05, 0), lamp_mat)
+		_box(self, Vector3(3.2, 0.08, 1.4), c + Vector3(4, H - 0.05, 0), lamp_mat)
+		var omni := OmniLight3D.new()
+		omni.position = c + Vector3(0, H - 0.6, 0)
+		omni.light_color = Color(1.0, 0.92, 0.8)
+		omni.light_energy = 1.35
+		omni.omni_range = 11.0
+		add_child(omni)
+		# name plate over the counter wall
+		var plate := _label3d(String(def["name"]), c + Vector3(0, 3.1, -D * 0.5 + 0.45), 72, color, self)
+		plate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# --- furniture by kind ---
+		var kind: String = String(def["kind"])
+		if kind == "ramen" or kind == "cafe":
+			for tx in [-5.5, 0.0, 5.5]:
+				for tz in [-1.5, 2.2]:
+					_box(self, Vector3(1.5, 0.09, 1.5), c + Vector3(tx, 0.78, tz), _mat(Color(0.3, 0.22, 0.16), 0.0, 0.6), true)
+					_box(self, Vector3(0.18, 0.75, 0.18), c + Vector3(tx, 0.38, tz), dark_mat)
+					_box(self, Vector3(0.45, 0.5, 0.45), c + Vector3(tx - 1.15, 0.25, tz), shelf_mat)
+					_box(self, Vector3(0.45, 0.5, 0.45), c + Vector3(tx + 1.15, 0.25, tz), shelf_mat)
+		else:
+			for row in range(2):
+				for sx in range(3):
+					var sp := c + Vector3(-5.6 + float(sx) * 5.6, 0, -1.2 + float(row) * 3.4)
+					_box(self, Vector3(3.4, 1.7, 0.7), sp + Vector3(0, 0.85, 0), shelf_mat, true)
+					for lvl in range(3):
+						for bxi in range(4):
+							var tint: Color = color.lerp(Color(0.9, 0.9, 0.95), _rng.randf() * 0.45)
+							_box(self, Vector3(0.55, 0.34, 0.4),
+								sp + Vector3(-1.25 + float(bxi) * 0.82, 0.45 + float(lvl) * 0.52, 0.42),
+								_mat(tint, 0.25, 0.7))
+		# --- counter + clerk ---
+		var counter_pos := c + Vector3(0, 0, -D * 0.5 + 1.6)
+		_box(self, Vector3(6.0, 1.05, 0.9), counter_pos + Vector3(0, 0.52, 0), _mat(Color(0.2, 0.21, 0.26), 0.0, 0.5), true)
+		_box(self, Vector3(6.2, 0.09, 1.05), counter_pos + Vector3(0, 1.09, 0), accent)
+		var clerk_def: Array = CLERKS[String(def["clerk"])]
+		var clerk: Node3D = ModelLoader.load_model(String(clerk_def[0]), String(clerk_def[1]))
+		if clerk != null:
+			clerk.position = counter_pos + Vector3(0, 0, -1.05)
+			clerk.rotation.y = 0.0
+			add_child(clerk)
+			var ap: AnimationPlayer = _find_ap(clerk)
+			if ap != null:
+				for an in ap.get_animation_list():
+					if "Idle" in String(an):
+						ap.play(an)
+						break
+		# --- buy displays ---
+		var buys: Array = []
+		var items: Array = def["items"]
+		for ii in range(items.size()):
+			var it: Dictionary = items[ii]
+			var bp := c + Vector3(-1.6 + float(ii) * 3.2, 0, -D * 0.5 + 3.1)
+			_box(self, Vector3(0.6, 0.95, 0.6), bp + Vector3(0, 0.47, 0), shelf_mat, true)
+			var icol: Color = ITEM_COLORS[String(it["id"])]
+			_box(self, Vector3(0.36, 0.36, 0.36), bp + Vector3(0, 1.2, 0), _mat(icol, 0.9, 0.4))
+			var bl := _label3d("%s €$%d" % [String(it["label"]), int(it["price"])], bp + Vector3(0, 1.75, 0), 44, Color(1, 1, 1), self)
+			bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var bd: Dictionary = it.duplicate()
+			bd["pos"] = bp
+			buys.append(bd)
+		# --- exit door (entry wall, +z side) ---
+		var exit_pos := c + Vector3(0, 0, D * 0.5 - 1.1)
+		_box(self, Vector3(1.9, 2.8, 0.12), c + Vector3(0, 1.4, D * 0.5 - 0.22), _mat(Color(0.4, 0.7, 0.9), 0.8, 0.3))
+		var el := _label3d("出口 EXIT", exit_pos + Vector3(0, 2.6, -0.4), 48, Color(0.7, 0.95, 1.0), self)
+		el.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		shop_sites.append({
+			"name": String(def["name"]), "kind": kind,
+			"door_pos": Vector3(door_xz.x, gy, door_xz.y) + Vector3(face.x, 0, face.y) * 2.2,
+			"street_pos": Vector3(door_xz.x, gy, door_xz.y),
+			"enter_pos": c + Vector3(0, 0.35, D * 0.5 - 2.2),
+			"exit_pos": exit_pos,
+			"counter_pos": counter_pos + Vector3(0, 0, 1.2),
+			"buys": buys,
+		})
+
+func _find_ap(n: Node) -> AnimationPlayer:
+	if n is AnimationPlayer:
+		return n
+	for ch in n.get_children():
+		var r: AnimationPlayer = _find_ap(ch)
+		if r != null:
+			return r
+	return null
+
+# --- v5.4 pedestrian bridge -------------------------------------------
+## A footbridge over the canal at x = -60: ramped stairs (step visuals
+## over a walkable ramp slope), a flat span at +3.2 m, light-strip
+## railings. All collision is simple boxes in one static body.
+func _build_footbridge() -> void:
+	var body := StaticBody3D.new()
+	body.name = "FootbridgeBody"
+	add_child(body)
+	# NOTE: the terrain's DeckMat/LineMat sample white on plain boxes
+	# (they are tuned for the terrain mesh) — the bridge uses its own
+	# dark materials (v54 photo PDCA).
+	var deck_mat := _mat(Color(0.16, 0.18, 0.22), 0.0, 0.85)
+	var trim_mat := _mat(Color(0.35, 0.38, 0.44), 0.0, 0.7)
+	var rail_mat := _mat(Color(0.3, 0.85, 1.0), 1.4, 0.4)
+	var X: float = -60.0
+	var TOP: float = 3.2
+	# span (z 167..191) + ramps. The ramps are lengthened and sunk so
+	# their top surface lands exactly at span height UNDER the span
+	# end: the first build left a 14 cm lip at the junction whose end
+	# edge wedged the walking capsule (v54 bridge probe).
+	_add_span(body, Vector3(X, TOP - 0.18, 179), Vector3(3.4, 0.36, 24.5), deck_mat)
+	var ang: float = atan2(TOP, 13.0)
+	_add_span(body, Vector3(X, 1.25, 159.67), Vector3(3.4, 0.36, 14.6), deck_mat, -ang)
+	_add_span(body, Vector3(X, 1.25, 198.33), Vector3(3.4, 0.36, 14.6), deck_mat, ang)
+	# step visuals on the ramps (collision is the ramp beneath)
+	for s in range(11):
+		var zk: float = 155.0 + float(s) * 1.06
+		_box(self, Vector3(3.4, 0.14, 1.16), Vector3(X, 3.23 - (166.75 - zk) * 0.2462, zk), trim_mat)
+		var zk2: float = 192.2 + float(s) * 1.06
+		_box(self, Vector3(3.4, 0.14, 1.16), Vector3(X, 3.23 - (zk2 - 191.25) * 0.2462, zk2), trim_mat)
+	# railings: posts + glowing top rail, span and ramps
+	for side in [-1.0, 1.0]:
+		_add_span(body, Vector3(X + side * 1.62, TOP + 0.5, 179), Vector3(0.09, 1.0, 24.5), rail_mat)
+		_add_span(body, Vector3(X + side * 1.62, 1.77, 159.67), Vector3(0.09, 1.0, 14.6), rail_mat, -ang)
+		_add_span(body, Vector3(X + side * 1.62, 1.77, 198.33), Vector3(0.09, 1.0, 14.6), rail_mat, ang)
+		for pz in [156.0, 164.0, 172.0, 179.0, 186.0, 194.0, 202.0]:
+		# (posts are visual only)
+			pass
+		for pz2 in [158.0, 166.0, 174.0, 182.0, 190.0, 198.0]:
+			var gy2: float = TOP * clampf((pz2 - 154.0) / 13.0, 0.0, 1.0) if pz2 < 179.0 else TOP * clampf((204.0 - pz2) / 13.0, 0.0, 1.0)
+			_box(self, Vector3(0.09, 1.0, 0.09), Vector3(X + side * 1.62, gy2 + 0.5, pz2), rail_mat)
+	# walking-surface slabs in the road PBR material: plain _mat top
+	# faces blow out to white on the software-GL check pipeline (the
+	# v5.3 apron proved RoadMat renders true on flat boxes).
+	var road_mat := _terrain_mat("RoadMat")
+	_box(self, Vector3(3.4, 0.05, 24.5), Vector3(X, TOP + 0.02, 179), road_mat)
+	var slab1 := _box(self, Vector3(3.4, 0.05, 14.6), Vector3(X, 1.28, 159.67), road_mat)
+	slab1.rotation.x = -ang
+	slab1.position.y += 0.21
+	var slab2 := _box(self, Vector3(3.4, 0.05, 14.6), Vector3(X, 1.28, 198.33), road_mat)
+	slab2.rotation.x = ang
+	slab2.position.y += 0.21
+	# lamps at both span ends + a name sign
+	for lz in [168.0, 190.0]:
+		_box(self, Vector3(0.12, 2.6, 0.12), Vector3(X - 1.45, TOP + 1.3, lz), _mat(Color(0.1, 0.1, 0.12), 0.0, 0.7))
+		_box(self, Vector3(0.4, 0.18, 0.4), Vector3(X - 1.45, TOP + 2.65, lz), _mat(Color(1.0, 0.95, 0.8), 2.0, 0.4))
+	var sl := _label3d("歩道橋", Vector3(X, TOP + 1.7, 166.2), 56, Color(0.65, 0.95, 1.0), self)
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _add_span(body: StaticBody3D, center: Vector3, size: Vector3, mat: Material, rot_x: float = 0.0) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.position = center
+	mi.rotation.x = rot_x
+	add_child(mi)
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	cs.shape = shape
+	cs.position = center
+	cs.rotation.x = rot_x
+	body.add_child(cs)

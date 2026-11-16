@@ -32,7 +32,11 @@ var _deck_cars: Array = []
 var _npcs: Array = []
 
 # Mission state.
-var mission: String = ""           # "" | pickup | hack | race
+var mission: String = ""           # "" | pickup | hack | race | courier | errand | rooftop
+var in_shop: int = -1              # index into city.shop_sites; -1 = on the street
+var items: Dictionary = {}         # consumable id -> count
+var item_defs: Dictionary = {}     # consumable id -> {label, price, heal}
+var _shop_target: int = -1         # shop index used by courier / errand
 var mission_stage: String = ""     # pickup: go|deliver ; race uses gate idx
 var mission_target_pos: Variant = null
 var _race_gates: Array[Vector3] = []
@@ -308,6 +312,9 @@ func _try_fullscreen_landscape() -> void:
 func interact() -> void:
 	if not started or bool(player.get("dead")):
 		return
+	if in_shop >= 0:
+		_shop_interact()
+		return
 	if player.get("in_car") != null:
 		_exit_car()
 		return
@@ -315,6 +322,10 @@ func interact() -> void:
 	var car: Node3D = _nearest_parked_car(p, 3.6)
 	if car != null:
 		_enter_car(car)
+		return
+	var shop_i: int = _nearest_shop_door(p, 2.8)
+	if shop_i >= 0:
+		_enter_shop(shop_i)
 		return
 	if mission == "" and _nearest(city.get("poi_kiosks"), p, 3.0) != null:
 		_assign_mission()
@@ -392,10 +403,100 @@ func apply_fall_damage(dmg: float) -> void:
 	if hp <= 0.0:
 		_die()
 
+# --- Shops & items (v5.4) ---
+
+func _ensure_item_defs() -> void:
+	if not item_defs.is_empty():
+		return
+	for s in city.get("shop_sites"):
+		for b in s["buys"]:
+			item_defs[String(b["id"])] = b
+
+func _nearest_shop_door(p: Vector3, max_d: float) -> int:
+	var sites: Array = city.get("shop_sites")
+	var best: int = -1
+	var bd: float = max_d
+	for i in range(sites.size()):
+		var d: float = (sites[i]["door_pos"] as Vector3).distance_to(p)
+		if d < bd:
+			bd = d
+			best = i
+	return best
+
+func _enter_shop(i: int) -> void:
+	in_shop = i
+	var s: Dictionary = (city.get("shop_sites") as Array)[i]
+	player.global_position = s["enter_pos"]
+	if player is CharacterBody3D:
+		(player as CharacterBody3D).velocity = Vector3.ZERO
+	player.call("set_camera_dist", 1.7)
+	hud.call("toast", "%s — カウンターで買い物、出口で出る" % String(s["name"]))
+
+func _exit_shop() -> void:
+	var s: Dictionary = (city.get("shop_sites") as Array)[in_shop]
+	in_shop = -1
+	player.global_position = s["door_pos"]
+	if player is CharacterBody3D:
+		(player as CharacterBody3D).velocity = Vector3.ZERO
+	player.call("set_camera_dist", 4.6)
+
+func _shop_interact() -> void:
+	var s: Dictionary = (city.get("shop_sites") as Array)[in_shop]
+	var p: Vector3 = player.global_position
+	if p.distance_to(s["exit_pos"]) < 2.4:
+		_exit_shop()
+		return
+	for b in s["buys"]:
+		if p.distance_to(b["pos"]) < 2.2:
+			_buy(b)
+			return
+
+func _buy(b: Dictionary) -> void:
+	_ensure_item_defs()
+	var price: int = int(b["price"])
+	var id: String = String(b["id"])
+	if money < price:
+		hud.call("toast", "€$が足りない（%s €$%d）" % [String(b["label"]), price])
+		return
+	money -= price
+	items[id] = int(items.get(id, 0)) + 1
+	_sync_item_hud()
+	hud.call("toast", "%s を購入（所持 ×%d）— H / ITEMで使用" % [String(b["label"]), int(items[id])])
+
+func use_item() -> void:
+	if not started or bool(player.get("dead")) or in_shop >= 0:
+		return
+	_ensure_item_defs()
+	var hp: float = float(player.get("hp"))
+	if hp >= 100.0:
+		hud.call("toast", "HPは満タンだ")
+		return
+	var best_id: String = ""
+	var best_heal: float = 0.0
+	for id in items:
+		if int(items[id]) > 0 and item_defs.has(id):
+			var h: float = float(item_defs[id]["heal"])
+			if h > best_heal:
+				best_heal = h
+				best_id = id
+	if best_id == "":
+		hud.call("toast", "回復アイテムを持っていない — 薬局や店で買える")
+		return
+	items[best_id] = int(items[best_id]) - 1
+	player.set("hp", minf(100.0, hp + best_heal))
+	_sync_item_hud()
+	hud.call("toast", "%s を使用 — HP +%.0f" % [String(item_defs[best_id]["label"]), best_heal])
+
+func _sync_item_hud() -> void:
+	var n: int = 0
+	for id in items:
+		n += int(items[id])
+	hud.call("set_item_count", n)
+
 # --- Missions ---
 
 func _assign_mission() -> void:
-	var kinds: Array[String] = ["pickup", "hack", "race"]
+	var kinds: Array[String] = ["pickup", "hack", "race", "courier", "errand", "rooftop"]
 	mission = kinds[_rng.randi() % kinds.size()]
 	_hack_channel = -1.0
 	if mission == "pickup":
@@ -442,6 +543,32 @@ func _assign_mission() -> void:
 		mission_target_pos = _race_gates[0]
 		_gate_ring.visible = true
 		hud.call("show_center_message", "仕事: レース — 車でゲートをくぐれ")
+	elif mission == "courier":
+		mission_stage = "to_counter"
+		var sites: Array = city.get("shop_sites")
+		_shop_target = _rng.randi() % sites.size()
+		mission_target_pos = sites[_shop_target]["door_pos"]
+		hud.call("show_center_message", "仕事: 配達 — %sで荷物を受け取れ" % String(sites[_shop_target]["name"]))
+	elif mission == "errand":
+		mission_stage = "get"
+		var sites2: Array = city.get("shop_sites")
+		_shop_target = 0
+		for i in range(sites2.size()):
+			if String(sites2[i]["kind"]) == "pharmacy":
+				_shop_target = i
+		mission_target_pos = sites2[_shop_target]["door_pos"]
+		hud.call("show_center_message", "仕事: 買い物代行 — 薬局で医療キットを買って届けろ")
+	elif mission == "rooftop":
+		mission_stage = "go"
+		var spots: Array = city.get("poi_pickups")
+		var tops: Array = []
+		for sp in spots:
+			if (sp as Vector3).y > 3.0:
+				tops.append(sp)
+		if tops.is_empty():
+			tops = spots
+		mission_target_pos = tops[_rng.randi() % tops.size()]
+		hud.call("show_center_message", "仕事: 屋上配達 — 屋上の目印へ荷物を運べ")
 
 func _complete_mission(reward: int, label: String) -> void:
 	money += reward
@@ -449,6 +576,7 @@ func _complete_mission(reward: int, label: String) -> void:
 	hud.call("show_center_message", "仕事完了")
 	mission = ""
 	mission_stage = ""
+	_shop_target = -1
 	mission_target_pos = null
 	_marker.visible = false
 	_chip.visible = false
@@ -463,6 +591,8 @@ func add_wanted(n: int) -> void:
 		_escape_t = 0.0
 
 func _die() -> void:
+	in_shop = -1
+	player.call("set_camera_dist", 4.6)
 	var fee: int = mini(50, money)
 	money -= fee
 	wanted = 0
@@ -501,7 +631,7 @@ func _process(delta: float) -> void:
 	# Safety net: if anything ever slips out of the world (a seam,
 	# a physics tunnelling frame), put the player back at the
 	# clinic instead of falling forever (his iPhone photo, v4.1).
-	if player.global_position.y < -8.0:
+	if player.global_position.y < -8.0 and in_shop < 0:
 		_rescue_fallout()
 		return
 	_update_mission(delta)
@@ -550,6 +680,43 @@ func _update_mission(delta: float) -> void:
 				add_wanted(1)
 		else:
 			hud.call("set_mission", "仕事: ハッキング — 端末まで %dm（着いたら ACT）" % int(dist))
+	elif mission == "courier":
+		var s: Dictionary = (city.get("shop_sites") as Array)[_shop_target]
+		if mission_stage == "to_counter":
+			mission_target_pos = s["counter_pos"] if in_shop == _shop_target else s["door_pos"]
+			var d2: float = p.distance_to(mission_target_pos)
+			hud.call("set_mission", "仕事: 配達 — %sのカウンターまで %dm" % [String(s["name"]), int(d2)])
+			if in_shop == _shop_target and d2 < 2.6:
+				mission_stage = "deliver"
+				var spots: Array = city.get("poi_pickups")
+				mission_target_pos = spots[_rng.randi() % spots.size()]
+				hud.call("show_center_message", "荷物を受け取った — 配達先へ届けろ")
+		else:
+			hud.call("set_mission", "仕事: 配達 — 配達先まで %dm" % int(dist))
+			if dist < 3.2:
+				_complete_mission(150, "配達")
+	elif mission == "errand":
+		if mission_stage == "get":
+			if int(items.get("medkit", 0)) > 0:
+				mission_stage = "deliver"
+				var kiosks: Array = city.get("poi_kiosks")
+				mission_target_pos = kiosks[_rng.randi() % kiosks.size()]
+				hud.call("show_center_message", "医療キットを持っている — キオスクへ届けろ")
+			else:
+				var s3: Dictionary = (city.get("shop_sites") as Array)[_shop_target]
+				mission_target_pos = s3["counter_pos"] if in_shop == _shop_target else s3["door_pos"]
+				var d3: float = p.distance_to(mission_target_pos)
+				hud.call("set_mission", "仕事: 買い物代行 — 薬局で医療キットを買え（あと %dm）" % int(d3))
+		else:
+			hud.call("set_mission", "仕事: 買い物代行 — キオスクまで %dm" % int(dist))
+			if dist < 3.2:
+				items["medkit"] = int(items.get("medkit", 0)) - 1
+				_sync_item_hud()
+				_complete_mission(260, "買い物代行")
+	elif mission == "rooftop":
+		hud.call("set_mission", "仕事: 屋上配達 — 屋上の目印まで %dm" % int(dist))
+		if dist < 3.4:
+			_complete_mission(180, "屋上配達")
 	elif mission == "race":
 		_race_t -= delta
 		hud.call("set_mission", "仕事: レース — ゲート %d/5 まで %dm / 残り %.0f 秒" % [_race_idx + 1, int(dist), maxf(_race_t, 0.0)])
@@ -625,8 +792,20 @@ func _update_prompts() -> void:
 		text = "F / ACT: 降車"
 	else:
 		var p: Vector3 = player.global_position
-		if _nearest_parked_car(p, 3.6) != null:
+		if in_shop >= 0:
+			var s2: Dictionary = (city.get("shop_sites") as Array)[in_shop]
+			if p.distance_to(s2["exit_pos"]) < 2.4:
+				text = "F / ACT: 店を出る"
+			else:
+				for b in s2["buys"]:
+					if p.distance_to(b["pos"]) < 2.2:
+						text = "F / ACT: %sを買う €$%d" % [String(b["label"]), int(b["price"])]
+						break
+		elif _nearest_parked_car(p, 3.6) != null:
 			text = "F / ACT: 乗車"
+		elif _nearest_shop_door(p, 2.8) >= 0:
+			var si: int = _nearest_shop_door(p, 2.8)
+			text = "F / ACT: %sに入る" % String((city.get("shop_sites") as Array)[si]["name"])
 		elif mission == "" and _nearest(city.get("poi_kiosks"), p, 3.0) != null:
 			text = "F / ACT: 仕事を受ける"
 		elif mission == "hack" and _hack_channel < 0.0 and _nearest(city.get("poi_terminals"), p, 3.2) != null:
