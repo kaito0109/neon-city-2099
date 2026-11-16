@@ -686,3 +686,22 @@ landing transition family was hardened instead:
   v15/v18/v20/v21/v24/v42/v45 green (touch suites under Xvfb).
   Device confirmation still pending — if it persists, the deciding
   detail is whether it follows plain jumps or only flips/high falls.
+
+## v5.2 — ROOT CAUSE of the broken legs (2026-11-16)
+His follow-up ("breaks after WALKING too") killed the jump theories.
+Real cause, found by forcing the web build's load path locally: the
+repo carries no .glb files, so the live build loads characters via
+ModelLoader's ModelBlob route (runtime GLTFDocument), while local
+tests used the editor-imported .glb. The RUNTIME importer drops bone
+tracks whose pose is constant in a clip (its Idle has NO Foot tracks;
+Walk 27/60 tracks) — the editor importer emits 1-key tracks instead.
+A bone a clip does not drive keeps the previous clip's pose: after
+any walk/run, the feet stayed frozen at gait extremes (measured on
+the blob path: Foot.R 2.2 rad while idling; editor path: 0.0).
+Fix: ModelLoader._complete_bone_tracks() — on the blob route only,
+every animation gains a rest-pose key for every bone track it lacks
+(the editor importer's behaviour). Verified on the blob path (Punk
+.glb hidden): after run+jump+stop, Foot.L/R = 0.0 at idle (was
+0.12/2.2); gait extremes unchanged while running. NPCs share the
+route, so the whole cast is repaired at once. v5.1's landing/roll
+hardening stays (independent, harmless).
