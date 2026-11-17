@@ -16,6 +16,9 @@ var road_lines: Array = []      # Array of [Vector3, Vector3] for the map
 var map_extent: float = 240.0
 var plot_count: int = 0
 var terrain_ok: bool = false
+var _mega_screen_mat: StandardMaterial3D = null
+var _beacon_mat: StandardMaterial3D = null
+var _beacon_t: float = 0.0
 
 var _layout: Dictionary = {}
 # v4 optimization: roof caps + neon cornice strips are collected as
@@ -51,6 +54,7 @@ func build(font: Font) -> void:
 	_build_roadworks_v53()
 	_build_shops()
 	_build_footbridge()
+	_build_beacons_v56()
 
 ## Dawn sky override: at 3:52 AM there are no visible stars — the
 ## pale light-polluted sky swallows them. Keep only a faint moon.
@@ -206,10 +210,40 @@ func _build_collision() -> void:
 		grid.append(row)
 	for j in range(n - 1):
 		for i in range(n - 1):
+			var cx: float = -ext + float(i) * step
+			var cz: float = -ext + float(j) * step
+			# The terrace quadrant is rebuilt finer below.
+			if cx >= 44.0 and cx + step <= 244.0 and cz >= -244.0 \
+					and cz + step <= -52.0:
+				continue
 			var a: Vector3 = grid[j][i]
 			var b: Vector3 = grid[j][i + 1]
 			var c: Vector3 = grid[j + 1][i + 1]
 			var d2: Vector3 = grid[j + 1][i]
+			_push_face(faces, a, b, c)
+			_push_face(faces, a, c, d2)
+	# v5.6: the bench risers are too steep for the 4 m grid (a cell
+	# spanning the 18 m riser deviates ~1.7 m from the true profile),
+	# so the terrace quadrant gets a 2 m patch. Its seam lies
+	# entirely on flat height-0 ground, so no cracks open along the
+	# boundary (checked by the v45 hole scan + v56 drive tests).
+	var fstep: float = 2.0
+	var fnx: int = int(200.0 / fstep) + 1
+	var fnz: int = int(192.0 / fstep) + 1
+	var fgrid: Array = []
+	for j in range(fnz):
+		var frow: Array = []
+		for i in range(fnx):
+			var fx: float = 44.0 + float(i) * fstep
+			var fz: float = -244.0 + float(j) * fstep
+			frow.append(Vector3(fx, _terrain_height(fx, fz), fz))
+		fgrid.append(frow)
+	for j in range(fnz - 1):
+		for i in range(fnx - 1):
+			var a: Vector3 = fgrid[j][i]
+			var b: Vector3 = fgrid[j][i + 1]
+			var c: Vector3 = fgrid[j + 1][i + 1]
+			var d2: Vector3 = fgrid[j + 1][i]
 			_push_face(faces, a, b, c)
 			_push_face(faces, a, c, d2)
 	var shape := ConcavePolygonShape3D.new()
@@ -243,20 +277,67 @@ func _build_collision() -> void:
 		pil.position = Vector3(px, g + (9.3 - g) * 0.5, pz)
 		body.add_child(pil)
 
+## v5.6 bench terraces: mirrors blender/build_terrain_v4.py
+## height_smooth EXACTLY (cross-checked by tests/v56_test.gd against
+## dumped samples). A 1 m flat lip + steep 3.5 m riser, except inside
+## the climbing roads' corridors, where the legacy 20 m ramp survives
+## so cars keep the v5.3-verified climb.
+var _corr_roads: Array = [
+	[Vector2(52, -55), Vector2(105, -92), Vector2(152, -124)],
+	[Vector2(105, -92), Vector2(155, -88), Vector2(138, -128),
+		Vector2(188, -138), Vector2(172, -182), Vector2(196, -205)],
+]
+
+func _pt_seg_dist(x: float, z: float, a: Vector2, b: Vector2) -> float:
+	var ab: Vector2 = b - a
+	var tt: float = 0.0
+	var l2: float = ab.length_squared()
+	if l2 > 0.0:
+		tt = clampf((Vector2(x, z) - a).dot(ab) / l2, 0.0, 1.0)
+	return Vector2(x, z).distance_to(a + ab * tt)
+
+func _smooth_f_gd(d: float, w: float) -> float:
+	if d <= 0.0:
+		return 1.0
+	if d >= w:
+		return 0.0
+	var t: float = 1.0 - d / w
+	return t * t * (3.0 - 2.0 * t)
+
+func _bench_f_gd(d: float) -> float:
+	if d <= 1.0:
+		return 1.0
+	if d >= 4.5:
+		return 0.0
+	var t: float = 1.0 - (d - 1.0) / 3.5
+	return t * t * (3.0 - 2.0 * t)
+
+func _corr_dist_gd(x: float, z: float) -> float:
+	var best: float = 1e9
+	for pts in _corr_roads:
+		for i in range(pts.size() - 1):
+			best = minf(best, _pt_seg_dist(x, z, pts[i], pts[i + 1]))
+	return best
+
 func _height_smooth_gd(x: float, z: float) -> float:
-	var best: float = 0.0
+	var bench: float = 0.0
+	var smooth: float = 0.0
 	for t in [[66.0, -219.0, 219.0, -76.0, 6.0],
 			[104.0, -219.0, 219.0, -114.0, 12.0],
 			[142.0, -219.0, 219.0, -152.0, 18.0]]:
 		var dx: float = maxf(maxf(t[0] - x, 0.0), x - t[2])
 		var dz: float = maxf(maxf(t[1] - z, 0.0), z - t[3])
 		var d: float = Vector2(dx, dz).length()
-		if d <= 0.0:
-			best = maxf(best, t[4])
-		elif d < 20.0:
-			var s: float = 1.0 - d / 20.0
-			best = maxf(best, t[4] * (s * s * (3.0 - 2.0 * s)))
-	return best
+		bench = maxf(bench, t[4] * _bench_f_gd(d))
+		smooth = maxf(smooth, t[4] * _smooth_f_gd(d, 20.0))
+	var cd: float = _corr_dist_gd(x, z)
+	if cd <= 11.0:
+		return smooth
+	if cd >= 18.0:
+		return bench
+	var c: float = (cd - 11.0) / 7.0
+	c = c * c * (3.0 - 2.0 * c)
+	return bench * c + smooth * (1.0 - c)
 
 func _canal_dist(x: float, z: float) -> float:
 	var pts: Array = _layout["canal"]
@@ -876,7 +957,11 @@ func _build_heroes() -> void:
 	# the spawn-facing front, with a light pool spilling onto the
 	# plaza — in the reference, screens are the landmarks, not
 	# window grids.
-	_box(mroot, Vector3(27, 11.5, 0.3), Vector3(17, 20, 28.25), _billboard_mats[1])
+	# v5.6: the screen gets its OWN material instance so _process
+	# can slowly rotate its tint (ad campaigns cycling) without
+	# dragging every other billboard using mats[1] along.
+	_mega_screen_mat = (_billboard_mats[1] as StandardMaterial3D).duplicate() as StandardMaterial3D
+	_box(mroot, Vector3(27, 11.5, 0.3), Vector3(17, 20, 28.25), _mega_screen_mat)
 	_box(mroot, Vector3(1.15, 17, 0.3), Vector3(-33, 22, 28.25), _bld_mats["SignP"])
 	_box(mroot, Vector3(1.15, 12.5, 0.3), Vector3(-38.5, 19.5, 28.25), _bld_mats["SignC"])
 	var pool := MeshInstance3D.new()
@@ -1760,8 +1845,43 @@ func _build_air_traffic() -> void:
 				"ph": randf() * TAU,
 			})
 
+## v5.6: red aviation beacons on every silhouette >= 55 m, all
+## pulsing off ONE shared material (real tower beacons sync the
+## same way, and it costs a single material update per frame).
+func _build_beacons_v56() -> void:
+	_beacon_mat = StandardMaterial3D.new()
+	_beacon_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_beacon_mat.albedo_color = Color(0.3, 0.03, 0.05)
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 10
+	sm.rings = 6
+	var count: int = 0
+	for b in _buildings:
+		var h: float = float(b.get("height", 0.0))
+		if h < 55.0 or count >= 20:
+			continue
+		var c: Vector3 = b["center"]
+		var mi := MeshInstance3D.new()
+		mi.mesh = sm
+		mi.material_override = _beacon_mat
+		mi.position = Vector3(c.x, c.y + h + 0.6, c.z)
+		add_child(mi)
+		count += 1
+
 func _process(delta: float) -> void:
 	super._process(delta)
+	_beacon_t += delta
+	if _beacon_mat != null:
+		var ph: float = fmod(_beacon_t, 2.6)
+		var k: float = clampf(1.0 - absf(ph - 0.3) / 0.3, 0.0, 1.0)
+		k *= k
+		_beacon_mat.albedo_color = Color(0.28 + 2.8 * k,
+				0.03 + 0.12 * k, 0.05 + 0.05 * k)
+	if _mega_screen_mat != null:
+		var hue: float = fmod(_beacon_t * 0.025, 1.0)
+		_mega_screen_mat.albedo_color = Color.from_hsv(hue, 0.22, 1.0)
 	for e in _air:
 		e["d"] = fmod(float(e["d"]) + float(e["speed"]) * delta,
 			float(e["span"]))

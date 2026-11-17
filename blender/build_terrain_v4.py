@@ -29,8 +29,21 @@ TERRACES = [  # (x_min, z_min, x_max, z_max, height) NE hills
     (104.0, -219.0, 219.0, -114.0, 12.0),
     (142.0, -219.0, 219.0, -152.0, 18.0),
 ]
-BANK_W = 20.0  # embankment width around each terrace (20 m keeps the
-# steepest bank at ~24 deg so cars can climb the road ramps)
+BANK_W = 4.5  # v5.6: bench riser width (was a 20 m smooth embankment
+# until v5.5, which read as bare dirt mounds in his screenshots)
+LIP_W = 1.0  # flat tread lip at the top of each riser
+SMOOTH_W = 20.0  # legacy embankment width, kept inside road corridors
+PLOT_BANK_W = 20.0  # plot exclusion keeps the legacy bank zone, so
+# regenerating the terrain never reshuffles the city layout
+# Roads that climb the terraces: inside their corridor the legacy
+# 20 m ramp survives (the v5.3-verified car climb); outside, benches.
+CORRIDOR_ROADS = [
+    [(52, -55), (105, -92), (152, -124)],  # ave_a_ne
+    [(105, -92), (155, -88), (138, -128), (188, -138),
+     (172, -182), (196, -205)],  # switch
+]
+CORRIDOR_IN = 11.0  # pure legacy ramp within this distance (m)
+CORRIDOR_OUT = 18.0  # pure bench beyond this distance (m)
 
 def height_at(x, z):
     """Stepped terrace heights (NE hills)."""
@@ -42,21 +55,53 @@ def height_at(x, z):
         return 6.0
     return 0.0
 
+def _smooth_f(d, w):
+    if d <= 0.0:
+        return 1.0
+    if d >= w:
+        return 0.0
+    t = 1.0 - d / w
+    return t * t * (3.0 - 2.0 * t)
+
+def _bench_f(d):
+    """Bench profile: flat lip for LIP_W, then a steep smoothstep
+    riser down to 0 at BANK_W."""
+    if d <= LIP_W:
+        return 1.0
+    if d >= BANK_W:
+        return 0.0
+    t = 1.0 - (d - LIP_W) / (BANK_W - LIP_W)
+    return t * t * (3.0 - 2.0 * t)
+
+def _corridor_dist(x, z):
+    best = 1e9
+    for pts in CORRIDOR_ROADS:
+        for i in range(len(pts) - 1):
+            best = min(best, _seg_dist(x, z, pts[i], pts[i + 1]))
+    return best
+
 def height_smooth(x, z):
-    """Terrace height with embankment falloff: roads and banks sample
-    this so a road crossing a terrace edge ramps WITH the ground
-    instead of grinding into a vertical retaining wall."""
-    best = 0.0
+    """v5.6 bench terraces with a road-corridor exception. Roads and
+    banks sample this so a road crossing a terrace edge ramps WITH
+    the ground; away from roads the ground falls in steep benches.
+    world_v4.gd _height_smooth_gd mirrors this function EXACTLY
+    (cross-checked by tests/v56_test.gd against dumped samples)."""
+    bench = 0.0
+    smooth = 0.0
     for (x1, z1, x2, z2, h) in TERRACES:
         dx = max(x1 - x, 0.0, x - x2)
         dz = max(z1 - z, 0.0, z - z2)
         d = math.hypot(dx, dz)
-        if d <= 0.0:
-            best = max(best, h)
-        elif d < BANK_W:
-            t = 1.0 - d / BANK_W
-            best = max(best, h * (t * t * (3.0 - 2.0 * t)))
-    return best
+        bench = max(bench, h * _bench_f(d))
+        smooth = max(smooth, h * _smooth_f(d, SMOOTH_W))
+    cd = _corridor_dist(x, z)
+    if cd <= CORRIDOR_IN:
+        return smooth
+    if cd >= CORRIDOR_OUT:
+        return bench
+    c = (cd - CORRIDOR_IN) / (CORRIDOR_OUT - CORRIDOR_IN)
+    c = c * c * (3.0 - 2.0 * c)
+    return bench * c + smooth * (1.0 - c)
 
 def _ring_points():
     pts = []
@@ -90,7 +135,7 @@ ROADS = [
 ]
 DASH_ROADS = {"ring", "ave_a_sw", "ave_a_ne", "ave_b_nw", "ave_b_se", "ns_main"}
 
-def _terrace_ring(x1, z1, x2, z2, d, h):
+def _terrace_ring(x1, z1, x2, z2, d, h, yoff=0.0):
     """One offset contour of a terrace rect as (gx, gy, gz) points:
     edge stations marched CCW plus quarter-arc stations at corners.
     d=0 is the rect itself (height h); outer rings sample
@@ -110,14 +155,14 @@ def _terrace_ring(x1, z1, x2, z2, d, h):
         for (px, pz) in seg[:-1]:
             qx, qz = px + n[0] * d, pz + n[1] * d
             y = h if d == 0.0 else height_smooth(qx, qz)
-            pts.append((qx, y, qz))
+            pts.append((qx, y + yoff, qz))
         # corner arc at b (degenerate to the corner point when d=0)
         steps = 4
         for k in range(1, steps + 1):
             ang = math.radians(a0 + (a1 - a0) * k / steps)
             qx, qz = b[0] + math.cos(ang) * d, b[1] + math.sin(ang) * d
             y = h if d == 0.0 else height_smooth(qx, qz)
-            pts.append((qx, y, qz))
+            pts.append((qx, y + yoff, qz))
     return pts
 
 # ---------------------------------------------------------------- mesh kit
@@ -219,8 +264,18 @@ def build_geometry():
     # ribbons crossing it agree instead of wedging cars.
     for (x1, z1, x2, z2, h) in TERRACES:
         flat_quad(x1, z1, x2, z2, h, "GroundMat")
-        rings = [_terrace_ring(x1, z1, x2, z2, d, h) for d in (0.0, BANK_W * 0.5, BANK_W)]
-        for r in range(2):
+        # v5.6: a pale concrete cap lip around the top edge (reads
+        # as an edge beam / curb from street level), then the bench
+        # riser in 3 bands following the bench profile.
+        cap_a = _terrace_ring(x1, z1, x2, z2, -0.55, h, 0.03)
+        cap_b = _terrace_ring(x1, z1, x2, z2, 0.9, h, 0.03)
+        for i in range(len(cap_a)):
+            a0, a1 = cap_a[i], cap_a[(i + 1) % len(cap_a)]
+            b0, b1 = cap_b[i], cap_b[(i + 1) % len(cap_b)]
+            add_quad(a0, a1, b1, b0, "WallMat", up=True)
+        rings = [_terrace_ring(x1, z1, x2, z2, d, h)
+                 for d in (0.0, LIP_W, 2.75, BANK_W)]
+        for r in range(3):
             ra, rb = rings[r], rings[r + 1]
             for i in range(len(ra)):
                 a0, a1 = ra[i], ra[(i + 1) % len(ra)]
@@ -257,6 +312,18 @@ def build_geometry():
                 ribbon(off, 1.7, 0.16, "SideMat", closed=closed)
         if name in DASH_ROADS:
             _dashes(sp, closed)
+            _edge_lines(sp, w, closed)
+    # v5.6 road dressing: zebra crossings at the busy junctions and
+    # manhole covers scattered on the carriageway — the v5.3 photos
+    # showed clean ribbons with nothing on them.
+    _zebra(0, 44, 0.0, 1.0, 16.0)
+    _zebra(0, 152, 0.0, 1.0, 16.0)
+    _zebra(-100, 138, 1.0, 0.0, 9.0)
+    _zebra(100, 138, 1.0, 0.0, 9.0)
+    _zebra(124, 62, -0.08, 1.0, 11.0)
+    _zebra(95, 55, 0.845, 0.54, 14.0)
+    _zebra(-90, 82, 0.778, -0.629, 18.0)
+    _manholes()
     # Market street surface reads warmer (stalls zone).
     # Skyway deck: per-segment boxes at y 9.3..10.05 + pillars.
     dp = subdivide(DECK, 11.0)
@@ -299,6 +366,68 @@ def _dashes(sp, closed):
                          (p1[0] + q[0] * hw, y1, p1[1] + q[1] * hw), "LineMat", up=True)
             t += 0.9
         acc += seg
+
+def _edge_lines(sp, w, closed):
+    """Continuous edge lines for the dashed roads. Heights come from
+    the CENTRELINE points (the road ribbon is flat across its width),
+    so the lines hug the surface even on the terrace climbs."""
+    hs = [height_smooth(px, pz) + 0.085 for (px, pz) in sp]
+    if closed:
+        hs = hs + [hs[0]]
+    for sgn in (-1.0, 1.0):
+        off = offset_pts(sp, sgn * (w / 2.0 - 0.45))
+        ribbon(off, 0.14, 0.0, "LineMat", heights=hs, closed=closed)
+
+def _zebra(cx, cz, dx, dz, road_w):
+    """Zebra crossing: 5 bars elongated across the road, repeated
+    along the road direction (dx, dz) (unit). All call sites are on
+    flat ground, so one sampled height serves the whole crossing."""
+    y = height_smooth(cx, cz) + 0.09
+    px, pz = -dz, dx
+    bar_l = (road_w - 2.0) / 2.0
+    bar_w = 0.275
+    for k in range(5):
+        t = (k - 2.0) * 1.1
+        bx, bz = cx + dx * t, cz + dz * t
+        ax, az = px * bar_l, pz * bar_l
+        lx, lz = dx * bar_w, dz * bar_w
+        add_quad((bx + ax + lx, y, bz + az + lz),
+                 (bx - ax + lx, y, bz - az + lz),
+                 (bx - ax - lx, y, bz - az - lz),
+                 (bx + ax - lx, y, bz + az - lz), "LineMat", up=True)
+
+def _disc(cx, cz, r, y, mat):
+    prev = None
+    for k in range(9):
+        ang = math.radians(k * 45.0)
+        pt = (cx + math.cos(ang) * r, y, cz + math.sin(ang) * r)
+        if prev is not None:
+            add_tri((cx, y, cz), prev, pt, mat, up=True)
+        prev = pt
+
+def _manholes():
+    rng = random.Random(56)
+    for (name, pts, w, kind, walk) in ROADS:
+        if kind == "switch":
+            continue
+        sp = subdivide(pts, 7.0)
+        nxt = rng.uniform(6.0, 16.0)
+        dist = 0.0
+        for i in range(len(sp) - 1):
+            a, b = sp[i], sp[i + 1]
+            seg = math.hypot(b[0] - a[0], b[1] - a[1])
+            while seg > 0.0 and nxt <= dist + seg:
+                tt = (nxt - dist) / seg
+                mx = a[0] + (b[0] - a[0]) * tt
+                mz = a[1] + (b[1] - a[1]) * tt
+                q = _perp(sp, i)
+                sgn = 1.0 if rng.random() < 0.5 else -1.0
+                ox = mx + q[0] * sgn * w * 0.22
+                oz = mz + q[1] * sgn * w * 0.22
+                _disc(ox, oz, 0.55, height_smooth(ox, oz) + 0.082,
+                      "ApronMat")
+                nxt += rng.uniform(19.0, 30.0)
+            dist += seg
 
 PILLAR_SPOTS = []
 
@@ -383,7 +512,7 @@ def gen_plots():
                 ddx = max(tx1 - x, 0.0, x - tx2)
                 ddz = max(tz1 - z, 0.0, z - tz2)
                 dout = math.hypot(ddx, ddz)
-                if 0.0 < dout < BANK_W + 1.5:
+                if 0.0 < dout < PLOT_BANK_W + 1.5:
                     bank_bad = True
                     break
             if bank_bad:
@@ -435,6 +564,31 @@ def gen_plots():
 # ---------------------------------------------------------------- main
 
 def main():
+    if os.environ.get("V56_DUMP"):
+        # Cross-check samples for tests/v56_test.gd: dump height_smooth
+        # on transects + a coarse grid over the terrace quadrant, then
+        # stop before touching any Blender state.
+        pts = []
+        x = 30.0
+        while x <= 230.0:
+            z = -230.0
+            while z <= -30.0:
+                pts.append((x, z))
+                z += 9.7
+            x += 9.3
+        for (ax, az, bx, bz) in ((30.0, -100.0, 230.0, -100.0),
+                                 (150.0, -40.0, 150.0, -170.0),
+                                 (52.0, -55.0, 152.0, -124.0),
+                                 (105.0, -92.0, 196.0, -205.0)):
+            for k in range(41):
+                t = k / 40.0
+                pts.append((ax + (bx - ax) * t, az + (bz - az) * t))
+        with open("/tmp/v56_samples.json", "w") as f:
+            json.dump([[round(px, 2), round(pz, 2),
+                        round(height_smooth(px, pz), 4)]
+                       for (px, pz) in pts], f)
+        print("V56_DUMP_OK", len(pts))
+        return
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats = {}
     for name in ("GroundMat", "RoadMat", "SideMat", "PlazaMat", "WaterMat",
