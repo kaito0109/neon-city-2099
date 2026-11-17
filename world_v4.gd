@@ -149,8 +149,15 @@ func _terrain_mat(name: String) -> StandardMaterial3D:
 		"DeckMat":
 			m = _pbr_ground("asphalt", Vector3.ONE * 0.25, Color(0.46, 0.45, 0.42), 0.9, 0.7, true, 0.6)
 		"LineMat":
-			m.albedo_color = Color(0.7, 0.74, 0.82)
-			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			# v5.7: road paint, not a light beam — the old unshaded
+			# near-white read as laser lines on device photos. Shaded
+			# now, with a whisper of emission for the retroreflective
+			# read real paint has at night.
+			m.albedo_color = Color(0.62, 0.65, 0.70)
+			m.roughness = 0.5
+			m.emission_enabled = true
+			m.emission = Color(0.45, 0.48, 0.53)
+			m.emission_energy_multiplier = 0.35
 		_:
 			m.albedo_color = Color(0.15, 0.15, 0.18)
 	_terrain_mat_cache[name] = m
@@ -282,11 +289,23 @@ func _build_collision() -> void:
 ## dumped samples). A 1 m flat lip + steep 3.5 m riser, except inside
 ## the climbing roads' corridors, where the legacy 20 m ramp survives
 ## so cars keep the v5.3-verified climb.
-var _corr_roads: Array = [
-	[Vector2(52, -55), Vector2(105, -92), Vector2(152, -124)],
-	[Vector2(105, -92), Vector2(155, -88), Vector2(138, -128),
-		Vector2(188, -138), Vector2(172, -182), Vector2(196, -205)],
-]
+var _corr_roads: Array = []
+var _corr_built: bool = false
+
+## v5.7: the corridor set grew — the RING and the east streets also
+## cross the terrace edges (the v5.6 benches left 60-degree risers
+## across them; traffic ground into the banks and the ring's NE arc
+## was undrivable). Built from the layout so builder and runtime
+## can never drift apart on WHICH roads are corridors.
+func _build_corr_roads() -> void:
+	_corr_built = true
+	_corr_roads.clear()
+	for r in LayoutV4.DATA["roads"]:
+		if String(r["name"]) in ["ave_a_ne", "switch", "ring", "e_st", "h1_e"]:
+			var pts: Array = []
+			for p in r["pts"]:
+				pts.append(Vector2(float(p[0]), float(p[1])))
+			_corr_roads.append(pts)
 
 func _pt_seg_dist(x: float, z: float, a: Vector2, b: Vector2) -> float:
 	var ab: Vector2 = b - a
@@ -313,6 +332,8 @@ func _bench_f_gd(d: float) -> float:
 	return t * t * (3.0 - 2.0 * t)
 
 func _corr_dist_gd(x: float, z: float) -> float:
+	if not _corr_built:
+		_build_corr_roads()
 	var best: float = 1e9
 	for pts in _corr_roads:
 		for i in range(pts.size() - 1):
@@ -1061,6 +1082,25 @@ func _build_boundary_v4() -> void:
 
 # --- routes for traffic / minimap / races -------------------------------
 
+## One direction of the ring as a driving lane: the centre-line loop
+## shifted 3.4 m to the left of travel (left-hand traffic).
+func _lane_loop(pts: Array, reversed_dir: bool) -> Array:
+	var seq: Array = []
+	for p in pts:
+		seq.append(Vector2(float(p[0]), float(p[1])))
+	if reversed_dir:
+		seq.reverse()
+	var out: Array = []
+	var n: int = seq.size()
+	for i in range(n):
+		var a: Vector2 = seq[(i - 1 + n) % n]
+		var b: Vector2 = seq[(i + 1) % n]
+		var dir: Vector2 = (b - a).normalized()
+		var left := Vector2(dir.y, -dir.x)
+		var p: Vector2 = seq[i] + left * 3.4
+		out.append(Vector3(p.x, 0, p.y))
+	return out
+
 func _compute_routes() -> void:
 	var by_name: Dictionary = {}
 	for r in _layout["roads"]:
@@ -1075,12 +1115,10 @@ func _compute_routes() -> void:
 		road_lines.append([Vector3(float(canal[i][0]), 0, float(canal[i][1])),
 			Vector3(float(canal[i + 1][0]), 0, float(canal[i + 1][1]))])
 	var ring: Array = by_name["ring"]
-	var tour: Array = []
-	for p in ring:
-		tour.append(Vector3(float(p[0]), 0, float(p[1])))
-	var rev: Array = tour.duplicate()
-	rev.reverse()
-	traffic_loops = [tour, rev]
+	# v5.7: traffic drives LANES, not the centre line — each tour is
+	# offset to the LEFT of its travel direction (left-hand traffic),
+	# so the two directions pass side by side instead of head-on.
+	traffic_loops = [_lane_loop(ring, false), _lane_loop(ring, true)]
 	# Skyway: two-way tour, offset to each side of the deck centreline.
 	var dp: Array = _layout["deck"]
 	var fwd: Array = []
@@ -1754,7 +1792,9 @@ func _build_plaza_marks() -> void:
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_texture = tex
-	m.albedo_color = Color(0.78, 0.78, 0.78, 1.0)
+	# v5.7: dimmed hard — at 0.78 additive the medallion's ticks and
+	# spokes read as scattered road paint on device photos.
+	m.albedo_color = Color(0.34, 0.35, 0.38, 1.0)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	var mi := MeshInstance3D.new()

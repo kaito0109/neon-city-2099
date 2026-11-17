@@ -158,7 +158,7 @@ func _spawn_cars() -> void:
 	# diagonal avenue, the N-S main street, and the S2 street.
 	var parked_spots: Array = [
 		[Vector3(153, 0.55, 30), PI], [Vector3(-153, 0.55, -40), 0.0],
-		[Vector3(-150, 0.55, 142), -0.89], [Vector3(5, 0.55, 100), 0.0],
+		[Vector3(-150, 0.55, 142), -0.89], [Vector3(4.5, 0.55, 126), 0.0],
 		[Vector3(-80, 0.55, 57), PI * 0.5],
 	]
 	# v3 (P1): the first parked car and one traffic colour are the
@@ -192,15 +192,17 @@ func _spawn_cars() -> void:
 	var deck: Array = city.get("deck_loop")
 	for i in range(6):
 		var car3: CharacterBody3D = CarScript.new()
+		car3.add_to_group("deck_traffic")
 		add_child(car3)
 		car3.call("build", colors[(i + 2) % colors.size()])
-		car3.set("mode", "traffic")
 		car3.set("_base_y", 10.6)
-		car3.set("_loop", deck)
+		# v5.7: set() with a whole Array silently failed on the typed
+		# _loop (deck cars NEVER drove — loop size 0). set_traffic_path
+		# appends element-wise and sets cruise speed.
+		car3.call("set_traffic_path", deck, 13.0 + float(i % 3) * 2.5)
 		var didx: int = (i * 5) % deck.size()
 		car3.global_position = (deck[didx] as Vector3) + Vector3(0, 10.6, 0)
 		car3.set("_wp", (didx + 1) % deck.size())
-		car3.set("speed", 13.0 + float(i % 3) * 2.5)
 		_deck_cars.append(car3)
 
 func _pick_crowd_block(blocks: Array) -> Dictionary:

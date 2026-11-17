@@ -37,11 +37,8 @@ PLOT_BANK_W = 20.0  # plot exclusion keeps the legacy bank zone, so
 # regenerating the terrain never reshuffles the city layout
 # Roads that climb the terraces: inside their corridor the legacy
 # 20 m ramp survives (the v5.3-verified car climb); outside, benches.
-CORRIDOR_ROADS = [
-    [(52, -55), (105, -92), (152, -124)],  # ave_a_ne
-    [(105, -92), (155, -88), (138, -128), (188, -138),
-     (172, -182), (196, -205)],  # switch
-]
+CORRIDOR_ROADS = []  # filled from ROADS below (v5.7: the ring and
+# the east streets cross terrace edges too and need the ramp)
 CORRIDOR_IN = 11.0  # pure legacy ramp within this distance (m)
 CORRIDOR_OUT = 18.0  # pure bench beyond this distance (m)
 
@@ -134,6 +131,9 @@ ROADS = [
     ("market", [(-115, 138), (120, 138)], 9.0, "market", False),
 ]
 DASH_ROADS = {"ring", "ave_a_sw", "ave_a_ne", "ave_b_nw", "ave_b_se", "ns_main"}
+CORRIDOR_ROADS.extend([pts for (name, pts, _w, _k, _wk) in ROADS
+                       if name in {"ave_a_ne", "switch", "ring",
+                                   "e_st", "h1_e"}])
 
 def _terrace_ring(x1, z1, x2, z2, d, h, yoff=0.0):
     """One offset contour of a terrace rect as (gx, gy, gz) points:
@@ -211,23 +211,29 @@ def _perp(pts, i):
     return (-dz / l, dx / l)
 
 def ribbon(pts, width, lift, mat, heights=None, closed=False):
-    """Flat ribbon following a polyline in XZ. heights: per-point Y or
-    None -> terrain height_at + lift."""
+    """Ribbon following a polyline in XZ. With heights=None every
+    CORNER is draped on height_smooth at its own XZ (+ lift): the
+    collision surface is that same function, so the ribbon can
+    neither hover above the ground (floating paint) nor chord
+    through a bend (the visible 'plates' on the climbs). Explicit
+    heights keep the old per-point behaviour (canal)."""
     seq = list(pts)
     if closed:
         seq = seq + [seq[0]]
-    hs = []
+    hw = width / 2.0
+    corners = []
     for i, (x, z) in enumerate(seq):
-        base = heights[i] if heights is not None else height_smooth(x, z)
-        hs.append(base + lift)
+        q = _perp(seq, i)
+        lx, lz = x + q[0] * hw, z + q[1] * hw
+        rx, rz = x - q[0] * hw, z - q[1] * hw
+        if heights is not None:
+            ly = ry = heights[i] + lift
+        else:
+            ly = height_smooth(lx, lz) + lift
+            ry = height_smooth(rx, rz) + lift
+        corners.append(((lx, ly, lz), (rx, ry, rz)))
     for i in range(len(seq) - 1):
-        p0, p1 = seq[i], seq[i + 1]
-        q0, q1 = _perp(seq, i), _perp(seq, i + 1)
-        hw = width / 2.0
-        L0 = (p0[0] + q0[0] * hw, hs[i], p0[1] + q0[1] * hw)
-        R0 = (p0[0] - q0[0] * hw, hs[i], p0[1] - q0[1] * hw)
-        L1 = (p1[0] + q1[0] * hw, hs[i + 1], p1[1] + q1[1] * hw)
-        R1 = (p1[0] - q1[0] * hw, hs[i + 1], p1[1] - q1[1] * hw)
+        (L0, R0), (L1, R1) = corners[i], corners[i + 1]
         add_quad(L0, R0, R1, L1, mat, up=True)
 
 def offset_pts(pts, off):
@@ -263,27 +269,32 @@ def build_geometry():
     # so the bank surface IS the smooth height function and road
     # ribbons crossing it agree instead of wedging cars.
     for (x1, z1, x2, z2, h) in TERRACES:
-        flat_quad(x1, z1, x2, z2, h, "GroundMat")
-        # v5.6: a pale concrete cap lip around the top edge (reads
-        # as an edge beam / curb from street level), then the bench
-        # riser in 3 bands following the bench profile.
+        # v5.6 cap lip stays (it sits on the flat lip zone, where
+        # the draped grid below has the same height).
         cap_a = _terrace_ring(x1, z1, x2, z2, -0.55, h, 0.03)
         cap_b = _terrace_ring(x1, z1, x2, z2, 0.9, h, 0.03)
         for i in range(len(cap_a)):
             a0, a1 = cap_a[i], cap_a[(i + 1) % len(cap_a)]
             b0, b1 = cap_b[i], cap_b[(i + 1) % len(cap_b)]
             add_quad(a0, a1, b1, b0, "WallMat", up=True)
-        rings = [_terrace_ring(x1, z1, x2, z2, d, h)
-                 for d in (0.0, LIP_W, 2.75, BANK_W)]
-        for r in range(3):
-            ra, rb = rings[r], rings[r + 1]
-            for i in range(len(ra)):
-                a0, a1 = ra[i], ra[(i + 1) % len(ra)]
-                b0, b1 = rb[i], rb[(i + 1) % len(rb)]
-                # up=True is load-bearing: a flipped bank quad reads
-                # as a ceiling to move_and_slide and traps cars under
-                # the sheet (found by the v24 climb test).
-                add_quad(a0, a1, b1, b0, "BankMat", up=True)
+    # v5.7: ONE draped ground grid over the whole terrace quadrant
+    # replaces the flat top plates + bench rings. The visual surface
+    # and the collision surface are now the same function everywhere
+    # in the quadrant — the plates/rings could not follow the road
+    # corridors' ramps or the feather band, so the ground floated
+    # or sank against the physics there. Steep cells take BankMat.
+    gx0, gz0, gx1, gz1, gstep = 44.0, -242.0, 242.0, -52.0, 3.0
+    gxs = [gx0 + i * gstep for i in range(int((gx1 - gx0) / gstep) + 1)]
+    gzs = [gz0 + i * gstep for i in range(int((gz1 - gz0) / gstep) + 1)]
+    gh = [[height_smooth(x, z) + 0.02 for x in gxs] for z in gzs]
+    for j in range(len(gzs) - 1):
+        for i in range(len(gxs) - 1):
+            hs = [gh[j][i], gh[j][i + 1], gh[j + 1][i + 1], gh[j + 1][i]]
+            mat = "BankMat" if max(hs) - min(hs) > 1.0 else "GroundMat"
+            add_quad((gxs[i], hs[0], gzs[j]),
+                     (gxs[i + 1], hs[1], gzs[j]),
+                     (gxs[i + 1], hs[2], gzs[j + 1]),
+                     (gxs[i], hs[3], gzs[j + 1]), mat, up=True)
     # Plaza.
     flat_quad(-34, -34, 34, 34, 0.06, "PlazaMat")
     # Canal: floor, water, bank walls, promenades.
@@ -303,7 +314,7 @@ def build_geometry():
         box(bx - 5.5, 160, bx + 5.5, 199, -0.6, 0.16, "RoadMat", "WallMat")
     # Roads + sidewalks + centre dashes.
     for (name, pts, w, kind, walk) in ROADS:
-        sp = subdivide(pts, 7.0)
+        sp = subdivide(pts, 2.5)
         closed = name == "ring"
         ribbon(sp, w, 0.07, "RoadMat", closed=closed)
         if walk:
@@ -341,6 +352,81 @@ def build_geometry():
                      (b2[0], 9.3, b2[1]), (a2[0], 9.3, a2[1]), "WallMat")
     return dp
 
+
+def _seg_seg_closest(p1, q1, p2, q2):
+    """(distance, midpoint) of the closest points of two segments."""
+    d1 = (q1[0] - p1[0], q1[1] - p1[1])
+    d2 = (q2[0] - p2[0], q2[1] - p2[1])
+    r = (p1[0] - p2[0], p1[1] - p2[1])
+    a = d1[0] * d1[0] + d1[1] * d1[1]
+    e = d2[0] * d2[0] + d2[1] * d2[1]
+    f = d2[0] * r[0] + d2[1] * r[1]
+    if a <= 1e-9 and e <= 1e-9:
+        return math.hypot(r[0], r[1]), p1
+    if a <= 1e-9:
+        s, t = 0.0, max(0.0, min(1.0, f / e))
+    elif e <= 1e-9:
+        t = 0.0
+        s = max(0.0, min(1.0, -(d1[0] * r[0] + d1[1] * r[1]) / a))
+    else:
+        c = d1[0] * r[0] + d1[1] * r[1]
+        b = d1[0] * d2[0] + d1[1] * d2[1]
+        denom = a * e - b * b
+        s = max(0.0, min(1.0, (b * f - c * e) / denom)) if denom > 1e-9 else 0.0
+        t = (b * s + f) / e
+        if t < 0.0:
+            t, s = 0.0, max(0.0, min(1.0, -c / a))
+        elif t > 1.0:
+            t, s = 1.0, max(0.0, min(1.0, (b - c) / a))
+    c1 = (p1[0] + d1[0] * s, p1[1] + d1[1] * s)
+    c2 = (p2[0] + d2[0] * t, p2[1] + d2[1] * t)
+    return math.hypot(c1[0] - c2[0], c1[1] - c2[1]), \
+        ((c1[0] + c2[0]) / 2.0, (c1[1] + c2[1]) / 2.0)
+
+
+def _compute_junctions():
+    """Discs where road paint must stop: the plaza (a pedestrian
+    square — no carriageway markings inside), every place two roads
+    cross or touch, and every interior road end (a T-junction).
+    Real roads paint neither a centre line nor edge lines through
+    an intersection."""
+    discs = [(0.0, 0.0, 41.0)]
+
+    def add(x, z, r):
+        for (cx, cz, _cr) in discs:
+            if (x - cx) ** 2 + (z - cz) ** 2 < 36.0:
+                return
+        discs.append((x, z, r))
+
+    segs = []
+    for (name, pts, w, _kind, _walk) in ROADS:
+        ss = [(pts[i], pts[i + 1], w) for i in range(len(pts) - 1)]
+        if name == "ring":
+            ss.append((pts[-1], pts[0], w))
+        segs.append((name, ss))
+        if name != "ring":
+            for p in (pts[0], pts[-1]):
+                if max(abs(p[0]), abs(p[1])) < 215.0:
+                    add(p[0], p[1], w / 2.0 + 3.0)
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            for (a, b, w1) in segs[i][1]:
+                for (c, d, w2) in segs[j][1]:
+                    dist, mid = _seg_seg_closest(a, b, c, d)
+                    if dist < 1.5:
+                        add(mid[0], mid[1], max(w1, w2) / 2.0 + 3.0)
+    return discs
+
+
+JUNCTIONS = _compute_junctions()
+
+
+def _in_junction(x, z):
+    for (cx, cz, r) in JUNCTIONS:
+        if (x - cx) ** 2 + (z - cz) ** 2 < r * r:
+            return True
+    return False
+
 def _dashes(sp, closed):
     seq = list(sp)
     if closed:
@@ -356,27 +442,45 @@ def _dashes(sp, closed):
                 t1 = min(t + 0.9, seg) / seg
                 p0 = (a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0)
                 p1 = (a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1)
-                y0 = height_smooth(p0[0], p0[1]) + 0.1
-                y1 = height_smooth(p1[0], p1[1]) + 0.1
+                mx = (p0[0] + p1[0]) / 2.0
+                mz = (p0[1] + p1[1]) / 2.0
+                if _in_junction(mx, mz):
+                    t += 0.9
+                    continue
                 q = _perp(seq, i)
                 hw = 0.16
-                add_quad((p0[0] + q[0] * hw, y0, p0[1] + q[1] * hw),
-                         (p0[0] - q[0] * hw, y0, p0[1] - q[1] * hw),
-                         (p1[0] - q[0] * hw, y1, p1[1] - q[1] * hw),
-                         (p1[0] + q[0] * hw, y1, p1[1] + q[1] * hw), "LineMat", up=True)
+                cs = [(p0[0] + q[0] * hw, p0[1] + q[1] * hw),
+                      (p0[0] - q[0] * hw, p0[1] - q[1] * hw),
+                      (p1[0] - q[0] * hw, p1[1] - q[1] * hw),
+                      (p1[0] + q[0] * hw, p1[1] + q[1] * hw)]
+                add_quad(*[(cx, height_smooth(cx, cz) + 0.1, cz)
+                           for (cx, cz) in cs], "LineMat", up=True)
             t += 0.9
         acc += seg
 
 def _edge_lines(sp, w, closed):
-    """Continuous edge lines for the dashed roads. Heights come from
-    the CENTRELINE points (the road ribbon is flat across its width),
-    so the lines hug the surface even on the terrace climbs."""
-    hs = [height_smooth(px, pz) + 0.085 for (px, pz) in sp]
+    """Continuous edge lines for the dashed roads: built per segment
+    with every corner draped on the height function (the v5.6 lines
+    took CENTRELINE heights and bridged bends as floating beams),
+    and suppressed inside junction discs — real roads paint no edge
+    line through an intersection or across the plaza."""
+    seq = list(sp)
     if closed:
-        hs = hs + [hs[0]]
+        seq = seq + [seq[0]]
     for sgn in (-1.0, 1.0):
-        off = offset_pts(sp, sgn * (w / 2.0 - 0.45))
-        ribbon(off, 0.14, 0.0, "LineMat", heights=hs, closed=closed)
+        off = offset_pts(seq, sgn * (w / 2.0 - 0.45))
+        for i in range(len(off) - 1):
+            a, b = off[i], off[i + 1]
+            if _in_junction((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0):
+                continue
+            q = _perp(off, i)
+            hw = 0.07
+            cs = [(a[0] + q[0] * hw, a[1] + q[1] * hw),
+                  (a[0] - q[0] * hw, a[1] - q[1] * hw),
+                  (b[0] - q[0] * hw, b[1] - q[1] * hw),
+                  (b[0] + q[0] * hw, b[1] + q[1] * hw)]
+            add_quad(*[(cx, height_smooth(cx, cz) + 0.085, cz)
+                       for (cx, cz) in cs], "LineMat", up=True)
 
 def _zebra(cx, cz, dx, dz, road_w):
     """Zebra crossing: 5 bars elongated across the road, repeated

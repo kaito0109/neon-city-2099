@@ -226,6 +226,7 @@ func set_traffic_path(points: Array, spd: float = 11.0) -> void:
 	global_position = _loop[0] + Vector3(0, _base_y, 0)
 	_wp = 1 % _loop.size()
 	speed = spd
+	_cruise_speed = spd
 
 var _ground_normal: Vector3 = Vector3.UP
 var _slope_pitch: float = 0.0
@@ -484,25 +485,169 @@ func add_car_look(rel: Vector2) -> void:
 	_look_pitch_t = clampf(_look_pitch_t - rel.y * 0.0042, -1.15, 0.62)
 	_look_idle_t = 0.0
 
+var _cruise_speed: float = 0.0
+var _stuck_t: float = 0.0
+var _stuck_pos: Vector3 = Vector3.ZERO
+var _snap_done: bool = false
+
+## v5.7: pure-pursuit lane following. The loop points ARE the lane
+## (offset to the left of travel in world_v4._compute_routes — Japan
+## drives on the left, so opposing tours no longer share a centre
+## line head-on). The old logic skipped to the next waypoint on ANY
+## collision; one brush with a lamp or another car cascaded into
+## diagonal cuts across blocks and the plaza, ending wedged between
+## buildings. Now collisions never change the route: the car slows
+## for curves and for a leader ahead, and only a car that stays
+## blocked for seconds respawns at its next loop point.
 func _traffic(delta: float) -> void:
-	if _loop.is_empty():
+	if _loop.size() < 2:
 		return
+	var n: int = _loop.size()
+	_wp = _wp % n
+	var fwd0 := Vector3(-sin(heading), 0, -cos(heading))
+	var guard: int = 0
+	while guard < 4:
+		var dp: Vector3 = _loop[_wp] - global_position
+		dp.y = 0.0
+		var reached: bool = dp.length() <= 4.0 or (dp.length() < 12.0 and dp.dot(fwd0) < -0.5)
+		if not reached:
+			break
+		_wp = (_wp + 1) % n
+		guard += 1
+	var cruise: float = _cruise_speed if _cruise_speed > 0.0 else maxf(speed, 10.0)
+	var look: float = 6.0 + cruise * 0.45
 	var target: Vector3 = _loop[_wp]
+	var to_wp: Vector3 = _loop[_wp] - global_position
+	to_wp.y = 0.0
+	var remain: float = look - to_wp.length()
+	var idx: int = _wp
+	var hops: int = 0
+	while remain > 0.0 and hops < n:
+		var nxt: int = (idx + 1) % n
+		var seg: Vector3 = _loop[nxt] - _loop[idx]
+		seg.y = 0.0
+		if seg.length() >= remain:
+			target = _loop[idx] + (_loop[nxt] - _loop[idx]) * (remain / maxf(seg.length(), 0.001))
+			remain = 0.0
+		else:
+			remain -= seg.length()
+			idx = nxt
+			target = _loop[idx]
+		hops += 1
 	var to: Vector3 = target - global_position
 	to.y = 0.0
-	if to.length() < 6.0:
-		_wp = (_wp + 1) % _loop.size()
-		return
-	var want: float = atan2(to.x, to.z) + PI  # forward is -Z of heading frame
-	# Our forward for heading h is (-sin h, -cos h); solve h so it points along 'to'.
-	want = atan2(-to.x, -to.z)
-	heading = lerp_angle(heading, want, clampf(delta * 1.6, 0.0, 1.0))
+	var want: float = atan2(-to.x, -to.z)
+	var diff: float = absf(wrapf(want - heading, -PI, PI))
+	heading = lerp_angle(heading, want, clampf(delta * 3.0, 0.0, 1.0))
 	rotation.y = heading
+	var desired: float = cruise
+	if diff > 0.45:
+		desired = minf(desired, cruise * 0.55)
+	desired = minf(desired, _follow_speed(cruise))
+	speed = move_toward(speed, desired, delta * (7.0 if desired < speed else 3.5))
 	var fwd := Vector3(-sin(heading), 0, -cos(heading))
 	velocity.x = fwd.x * speed
 	velocity.z = fwd.z * speed
 	velocity.y = -2.0
-	global_position.y = move_toward(global_position.y, _base_y, delta * 3.0)
+	# v5.7: hover 0.55 over the REAL ground — the ring climbs the
+	# terraces on ramps, and the old flat y-pin buried traffic in
+	# the banks (his photo: a car wedged at a bank base). The probe
+	# also samples ahead so the car rises before a ramp, and only
+	# static geometry counts (a leader's roof is not ground). The
+	# first frame casts from high above: cars spawn at y=0.55 even
+	# on the 12 m section and must snap UP to the road, not tunnel
+	# under the hill at pin height.
+	var gy: float = _traffic_ground_y(fwd, 16.0 if not _snap_done else 1.2)
+	_snap_done = true
+	var target_y: float = gy + 0.55 if gy > -9999.0 else _base_y
+	global_position.y = move_toward(global_position.y, target_y,
+			delta * maxf(4.0, speed * 1.2))
 	move_and_slide()
-	if get_slide_collision_count() > 0:
-		_wp = (_wp + 1) % _loop.size()
+	_stuck_t += delta
+	if _stuck_t > 2.5:
+		var disp: Vector3 = global_position - _stuck_pos
+		disp.y = 0.0
+		_stuck_t = 0.0
+		_stuck_pos = global_position
+		# NB: judge by CRUISE, not current speed — a car held at a
+		# dead stop by the follow logic has speed ~= 0, and a
+		# speed-based test never fires on exactly the cars that are
+		# stuck (deck U-turn nose-to-nose deadlock, 2026-11-17).
+		if cruise > 3.0 and disp.length() < 2.0:
+			_respawn_on_loop()
+	# Lateral leash: a car shoved off its road (collision ejection,
+	# deck edge) snaps back instead of driving cross-country.
+	var pa: Vector3 = _loop[(_wp - 1 + n) % n]
+	var pb: Vector3 = _loop[_wp]
+	var ab: Vector3 = pb - pa
+	ab.y = 0.0
+	var ap: Vector3 = global_position - pa
+	ap.y = 0.0
+	var tt: float = 0.0
+	if ab.length() > 0.001:
+		tt = clampf(ap.dot(ab) / ab.length_squared(), 0.0, 1.0)
+	var near: Vector3 = pa + ab * tt
+	var lat: float = Vector2(global_position.x - near.x, global_position.z - near.z).length()
+	if lat > (6.0 if _base_y > 5.0 else 10.0):
+		_respawn_on_loop()
+
+## Slow for a slower vehicle ahead in the same lane (traffic units
+## and the player's car both count); stop with a ~5 m gap.
+func _follow_speed(cruise: float) -> float:
+	var fwd := Vector3(-sin(heading), 0, -cos(heading))
+	var side := Vector3(-fwd.z, 0, fwd.x)
+	var best: float = cruise
+	var groups: Array = ["cars"]
+	if _base_y > 5.0:
+		groups.append("deck_traffic")
+	for g in groups:
+		for o in get_tree().get_nodes_in_group(g):
+			if o == self or not (o is Node3D):
+				continue
+			var om: String = String(o.get("mode"))
+			if om != "traffic" and om != "driven":
+				continue
+			var rel: Vector3 = (o as Node3D).global_position - global_position
+			rel.y = 0.0
+			var ahead: float = rel.dot(fwd)
+			if ahead < 1.0 or ahead > 12.0:
+				continue
+			if absf(rel.dot(side)) > 2.4:
+				continue
+			var ospeed: float = float(o.get("speed"))
+			best = minf(best, ospeed * clampf((ahead - 5.5) / 6.0, 0.0, 1.0))
+	return best
+
+## Highest static ground under the car and 3.5 m ahead of it.
+## `up` is how far above the car the cast starts (16 on the spawn
+## snap, 1.2 while following — a tall cast in normal driving would
+## read the skyway deck above a street car as its ground).
+func _traffic_ground_y(fwd: Vector3, up: float = 1.2) -> float:
+	var best: float = -9999.0
+	for off in [Vector3.ZERO, fwd * 3.5]:
+		var base: Vector3 = global_position + off
+		var q := PhysicsRayQueryParameters3D.create(
+				base + Vector3(0, up, 0), base + Vector3(0, -6.0, 0))
+		q.exclude = [get_rid()]
+		var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty() and hit["collider"] is StaticBody3D:
+			best = maxf(best, float((hit["position"] as Vector3).y))
+	return best
+
+func _respawn_on_loop() -> void:
+	if _loop.is_empty():
+		return
+	var p: Vector3 = _loop[_wp]
+	var q: Vector3 = _loop[(_wp + 1) % _loop.size()]
+	var d: Vector3 = q - p
+	d.y = 0.0
+	if d.length() > 0.01:
+		heading = atan2(-d.x, -d.z)
+		rotation.y = heading
+	global_position = Vector3(p.x, _base_y, p.z)
+	var fwd := Vector3(-sin(heading), 0, -cos(heading))
+	var gy: float = _traffic_ground_y(fwd, 16.0)
+	if gy > -9999.0:
+		global_position.y = gy + 0.55
+	speed = 0.0
+	velocity = Vector3.ZERO

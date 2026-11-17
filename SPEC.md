@@ -741,3 +741,43 @@ hardening stays (independent, harmless).
 - Atmosphere: aviation beacons — one shared unshaded material + shared sphere instanced on every placed building >= 55 m (cap 20), pulsed in world_v4._process (2.6 s period, sharp k² flash, all towers in sync, international style). The mega ad screen got a dedicated material whose tint slowly hue-rotates (it previously shared the cycling billboard palette).
 - Verification trap found en route: Godot's import cache for the terrain GLB went stale (Nov 15 .scn) — local shots silently rendered the OLD terrain while collision already used the new heights. Fixed by deleting .godot/imported/terrain_v4.glb-* and re-importing; a mesh probe (tests/v56_probe.gd) now asserts the zebra corner verts exist in the loaded mesh. CI is unaffected (clean checkout import). Rule: after regenerating any GLB, check the imported .scn mtime or probe the mesh.
 - Photo PDCA (tests/v56_shots.gd, v56_shots2.gd, v56b_shot.gd): benches read as constructed terraces with pale cap rims, edge lines trace the whole road net incl. the climbs, zebras + manholes read at street level, 2K cracked asphalt is crisp in the foreground. Suites: v56 (626-sample sync + profile), v45, v24, v42, v54 fails=0, v55 5/5, v18, v21 headless; v15/v20 touch under Xvfb. Device confirmation pending.
+
+## v5.7 — traffic & roads fix (2026-11-17)
+His iPhone verdict on v5.6 (7 photos): traffic cars wedge between
+buildings, ignore roads and roam the central plaza; raised roads
+show "plates" and float where no plate; white lines look unreal.
+- Traffic rewritten as pure pursuit on LEFT-HAND lanes (ring centre
+  line offset 3.4 m to the left of travel, both directions). The old
+  any-collision waypoint-skip (the plaza-crossing cascade) is gone.
+  Car-following (match leader speed, ~5.5 m gap), curve slowdown,
+  ground probe hover (static-only raycast, spawn snap from +16),
+  bounded waypoint advance, lateral leash (street 10 m / deck 6 m)
+  and a cruise-based stuck detector (2.5 s window — judging by
+  current speed never fires on a car held at a dead stop; that was
+  the deck U-turn nose-to-nose deadlock).
+- Pre-existing bug found: deck traffic NEVER moved — main.gd set
+  the typed Array[Vector3] via set("_loop", …), which silently
+  fails; deck cars now go through set_traffic_path() + the
+  "deck_traffic" group. Parked car at (5,0.55,100) sat inside the
+  ring junction; moved to (4.5,0.55,126).
+- Corridor set unified: {ave_a_ne, switch, ring, e_st, h1_e} built
+  from LayoutV4 road names in BOTH the Blender builder and the
+  runtime height function (v5.6 had left the ring's NE arc and two
+  streets crossing 60° bench risers).
+- Roads: ribbons subdivide at 2.5 m and drape EVERY corner on the
+  height function; terrace top plates + bench rings replaced by a
+  draped 3 m ground grid over the terrace quadrant (BankMat where a
+  cell's height range > 1.0, else GroundMat) — visual surface ==
+  collision function. Markings: 44 junction discs suppress dashes
+  and edge lines inside junctions/plaza; LineMat is now a shaded
+  paint (albedo 0.62 grey, faint 0.35 emission) instead of unshaded
+  laser white; plaza medallion dimmed to (0.34,0.35,0.38).
+- Verified: v57 traffic sim ALL PASS (120 s × 14 cars: path
+  1079–1681 m each, max lateral 5.19 street / 4.57 deck — the
+  street worst is a momentary ~5 m swing on the SW arc's outer
+  lane, car centre ~1.6 m past the paint edge at road height;
+  min pair distance 6.52; no plaza entry; no car stuck ≥20 s),
+  v56 height-sync (626 samples, worst 0.0044), v45/v24/v42/v54/
+  v55/v18/v21 headless, v15/v20 Xvfb touch, 6 PDCA photos (deck
+  cars seen driving the skyway; zebras + suppressed junction
+  markings; draped switchback with no plates).
