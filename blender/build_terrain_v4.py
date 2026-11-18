@@ -283,7 +283,15 @@ def build_geometry():
     # in the quadrant — the plates/rings could not follow the road
     # corridors' ramps or the feather band, so the ground floated
     # or sank against the physics there. Steep cells take BankMat.
-    gx0, gz0, gx1, gz1, gstep = 44.0, -242.0, 242.0, -52.0, 3.0
+    # v5.8: the grid must be the SAME surface as the physics, not
+    # just the same function — a 3 m visual grid over the 2 m
+    # collision patch deviated up to ~1 m on the bench risers and
+    # NPCs stood waist-deep in the slope on his iPhone. So: same
+    # extent (x 44..244, z -244..-52), same 2 m lattice, and the
+    # cells are emitted as explicit triangles with the collision
+    # builder's exact split (a,b,c) + (a,c,d) — a quad left to the
+    # exporter would pick its own diagonal per cell.
+    gx0, gz0, gx1, gz1, gstep = 44.0, -244.0, 244.0, -52.0, 2.0
     gxs = [gx0 + i * gstep for i in range(int((gx1 - gx0) / gstep) + 1)]
     gzs = [gz0 + i * gstep for i in range(int((gz1 - gz0) / gstep) + 1)]
     gh = [[height_smooth(x, z) + 0.02 for x in gxs] for z in gzs]
@@ -291,10 +299,12 @@ def build_geometry():
         for i in range(len(gxs) - 1):
             hs = [gh[j][i], gh[j][i + 1], gh[j + 1][i + 1], gh[j + 1][i]]
             mat = "BankMat" if max(hs) - min(hs) > 1.0 else "GroundMat"
-            add_quad((gxs[i], hs[0], gzs[j]),
-                     (gxs[i + 1], hs[1], gzs[j]),
-                     (gxs[i + 1], hs[2], gzs[j + 1]),
-                     (gxs[i], hs[3], gzs[j + 1]), mat, up=True)
+            va = (gxs[i], hs[0], gzs[j])
+            vb = (gxs[i + 1], hs[1], gzs[j])
+            vc = (gxs[i + 1], hs[2], gzs[j + 1])
+            vd = (gxs[i], hs[3], gzs[j + 1])
+            add_tri(va, vb, vc, mat, up=True)
+            add_tri(va, vc, vd, mat, up=True)
     # Plaza.
     flat_quad(-34, -34, 34, 34, 0.06, "PlazaMat")
     # Canal: floor, water, bank walls, promenades.

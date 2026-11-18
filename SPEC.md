@@ -781,3 +781,32 @@ show "plates" and float where no plate; white lines look unreal.
   v55/v18/v21 headless, v15/v20 Xvfb touch, 6 PDCA photos (deck
   cars seen driving the skyway; zebras + suppressed junction
   markings; draped switchback with no plates).
+
+## v5.8 — buried NPCs fix (2026-11-17)
+His iPhone photo: two NPCs waist-deep in a terrace bank slope.
+Cause: the v5.7 draped ground grid sampled the height function on
+a 3 m lattice while the collision patch uses 2 m — on the bench
+risers (up to 6 m over a 3.5 m run) the two surfaces deviated by
+up to ~1 m, and characters stand on the collision, so they sank
+into the visual slope (or floated). Fix: the grid now uses the
+collision patch's EXACT lattice (x 44..244, z -244..-52, 2 m) and
+its exact triangulation — cells are emitted as explicit triangles
+(a,b,c) + (a,c,d) via add_tri, because a quad handed to the
+exporter picks its own diagonal. Verified by tests/v58_probe.gd
+on the blob route: all 9,797 lattice points present in the mesh,
+worst height deviation 0.0003 m at authored points. (Godot's glTF
+import shifts vertices a few mm in XZ; on the steepest riser that
+still reads as up to ~3 cm — ankle level, accepted.) Player photos
+on the 6 m and 18 m risers (tests/v58_shots.gd) show feet flush
+with the slope. Terrain faces 11,083 -> 26,125; tres 3.0 MB.
+- Second half of the same bug (found by re-checking after the
+  report): NPCs are scripted Node3D, not physics bodies, and
+  walked at their block's single flat y (npc.gd). On the NE
+  terrace block (150,-136, y=12) the switch-road corridor keeps
+  the smooth ramp and the ground rises to ~14.2 m at the block's
+  edge — NPCs there sank up to ~2.2 m regardless of the grid.
+  npc.gd now samples _terrain_height every frame (via main.city),
+  scoped to the terrace quadrant where visual == collision;
+  outside blocks keep the flat y. Verified by
+  tests/v58_npc_test.gd: 12 test NPCs on the two terrace blocks,
+  60 sim-seconds, 1,392 samples, worst |y - terrain| = 0.0.

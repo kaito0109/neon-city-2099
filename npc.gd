@@ -71,6 +71,24 @@ func _limit_vis(node: Node) -> void:
 func is_down() -> bool:
 	return _down
 
+## v5.8: NPCs are scripted Node3D, not physics bodies, and walked
+## at their block's single flat y. On the terrace blocks the real
+## ground varies by metres across one block (the road corridors
+## keep the smooth ramp), so NPCs sank waist-deep into the slope
+## in his iPhone photo. Inside the terrace quadrant the visual
+## ground IS the height function (v5.8 grid), so sample it.
+## Outside the quadrant the flat block y stays (verified ground).
+func _snap_ground() -> void:
+	var gp: Vector3 = global_position
+	if gp.x < 44.0 or gp.z > -52.0:
+		return
+	var m: Node = get_parent()
+	if m == null:
+		return
+	var c: Object = m.get("city")
+	if c != null and c.has_method("_terrain_height"):
+		global_position.y = float(c.call("_terrain_height", gp.x, gp.z))
+
 func hit_by_car() -> void:
 	if _down:
 		return
@@ -97,6 +115,7 @@ func _process(delta: float) -> void:
 		_sep_t -= delta
 		if _sep_t <= 0.0:
 			_sep_t = 0.3
+			_snap_ground()
 			for other in get_tree().get_nodes_in_group("npcs"):
 				if other == self:
 					continue
@@ -124,6 +143,7 @@ func _process(delta: float) -> void:
 				if not _standing:
 					People.play(_ap, "Walk")
 			global_position = _corners[_rng.randi() % _corners.size()] + Vector3(0, 0.27, 0)
+			_snap_ground()
 		return
 	if _standing:
 		return
@@ -136,3 +156,4 @@ func _process(delta: float) -> void:
 	var dir: Vector3 = to.normalized()
 	global_position += dir * _speed * delta
 	_body.rotation.y = lerp_angle(_body.rotation.y, atan2(dir.x, dir.z), clampf(delta * 8.0, 0.0, 1.0))
+	_snap_ground()
