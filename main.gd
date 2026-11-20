@@ -141,7 +141,16 @@ func _build_environment() -> void:
 	moon.rotation_degrees = Vector3(-42, 35, 0)
 	moon.light_color = Color(0.55, 0.68, 0.85)
 	moon.light_energy = 0.78
-	moon.shadow_enabled = false
+	# v5.9: shadows ON — the single biggest "flat retro" cue was
+	# their absence (buildings/props floated on unshaded ground).
+	# Kept local: a 90 m shadow camera around the view keeps the
+	# atlas resolution usable in Compatibility and the cost flat;
+	# the v5.5 grade (fog / ambient / colour) is untouched.
+	moon.shadow_enabled = true
+	moon.directional_shadow_max_distance = 90.0
+	moon.shadow_bias = 0.06
+	moon.shadow_normal_bias = 1.2
+	moon.shadow_blur = 1.2
 	add_child(moon)
 
 func _load_font() -> Font:

@@ -810,3 +810,32 @@ with the slope. Terrain faces 11,083 -> 26,125; tres 3.0 MB.
   outside blocks keep the flat y. Verified by
   tests/v58_npc_test.gd: 12 test NPCs on the two terrace blocks,
   60 sim-seconds, 1,392 samples, worst |y - terrain| = 0.0.
+
+## v5.9 — graphics pass (2026-11-18)
+His verdict: the game looks like a 20-year-old retro title, not
+CP2077; buildings and roads need more work. Diagnosis (verified
+in code): no shadows at all, 512px flat window textures with no
+normal maps, almost no facade relief, no backdrop skyline.
+- Moon shadows ON: directional_shadow_max_distance 90, bias
+  0.06 / normal bias 1.2 / blur 1.2 (main.gd, moon only; the
+  v5.5 grade is untouched). Biggest single gain: buildings and
+  props now sit ON the ground. Draw calls at spawn 1090 -> 2632
+  including the shadow pass; llvmpipe frame time +70% is a CPU
+  renderer artifact — iPhone fps is his call, 1-line revert.
+- Window textures repainted at 1024 (real-size mapping kept:
+  6.8 x 12.4 m tile): frames, mullions, blinds, interior
+  silhouettes, sill grime; a height map is painted alongside
+  and converted (Sobel, wrap-safe) to win_*_n.jpg normals.
+  Facade materials are now SHADED with normals wired (they
+  were unshaded by design; albedo x1.3 compensates the light
+  response — environment values unchanged).
+- Facade greebles: 312 AC units (with fan discs) + drain pipes
+  as 3 MultiMesh draw calls.
+- Backdrop skyline: 51 silhouette towers at 380-650 m with
+  real-size window grids, fog-faded, no collision/shadows.
+- Ground: 16 grime blotches + 43 glossy puddles on flat road
+  stretches and the plaza (subtle by design).
+- Verified: Xvfb PDCA v59a (before) -> v59e (after) + blob-route
+  closeups (v59h), probe counts, v45 PASS, v57 PASS (traffic
+  120 s). v56 not re-run (terrain height fn untouched; its
+  samples file was lost in a VM restart).

@@ -28,6 +28,12 @@ const PAIRS: Array = [
 	["res://assets/textures/win_kit_b.jpg", "res://assets/texture_data/win_kit_b.tres"],
 	["res://assets/textures/win_mil_a.jpg", "res://assets/texture_data/win_mil_a.tres"],
 	["res://assets/textures/win_mil_b.jpg", "res://assets/texture_data/win_mil_b.tres"],
+	["res://assets/textures/win_ent_a_n.jpg", "res://assets/texture_data/win_ent_a_n.tres"],
+	["res://assets/textures/win_ent_b_n.jpg", "res://assets/texture_data/win_ent_b_n.tres"],
+	["res://assets/textures/win_kit_a_n.jpg", "res://assets/texture_data/win_kit_a_n.tres"],
+	["res://assets/textures/win_kit_b_n.jpg", "res://assets/texture_data/win_kit_b_n.tres"],
+	["res://assets/textures/win_mil_a_n.jpg", "res://assets/texture_data/win_mil_a_n.tres"],
+	["res://assets/textures/win_mil_b_n.jpg", "res://assets/texture_data/win_mil_b_n.tres"],
 ]
 
 func _initialize() -> void:

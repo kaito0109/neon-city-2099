@@ -55,6 +55,9 @@ func build(font: Font) -> void:
 	_build_shops()
 	_build_footbridge()
 	_build_beacons_v56()
+	_build_greebles_v59()
+	_build_skyline_v59()
+	_build_ground_v59()
 
 ## Dawn sky override: at 3:52 AM there are no visible stars — the
 ## pale light-polluted sky swallows them. Keep only a faint moon.
@@ -423,29 +426,47 @@ var model_building_count: int = 0
 var skf_hero_count: int = 0
 
 func _make_bld_materials() -> void:
-	# Window facades are unshaded night textures (the photo-tower
-	# lesson: the texture IS the lighting). UVs are in metres and
-	# the texture repeats, so windows keep a constant real size.
+	# Window facades: UVs are in metres and the texture repeats, so
+	# windows keep a constant real size. v5.9: the facades are now
+	# SHADED with a painted normal map (1024 px tiles) — they used
+	# to be unshaded ("the texture IS the lighting"), which read as
+	# flat printed paper once the rest of the city got PBR ground
+	# and real shadows. Real moon shading + frame/recess relief +
+	# shadow receiving gives the mass its depth; the S/B variants
+	# keep a mild tint on top of the real shading for variety.
 	for pair in [["BldEntA", "win_ent_a"], ["BldEntB", "win_ent_b"],
 			["BldKitA", "win_kit_a"], ["BldKitB", "win_kit_b"],
 			["BldMilA", "win_mil_a"], ["BldMilB", "win_mil_b"]]:
 		var m := StandardMaterial3D.new()
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.albedo_texture = TextureLoader.load_tex(
 			"res://assets/textures/" + pair[1] + ".jpg",
 			"res://assets/texture_data/" + pair[1] + ".tres")
+		m.normal_enabled = true
+		m.normal_texture = TextureLoader.load_tex(
+			"res://assets/textures/" + pair[1] + "_n.jpg",
+			"res://assets/texture_data/" + pair[1] + "_n.tres")
+		m.normal_scale = 1.1
+		m.roughness = 0.62
+		# The v5.5 grade was exposed for unshaded facades; under
+		# real lighting the same albedo lands ~30% darker, so the
+		# material itself carries the compensation (environment
+		# lighting stays exactly as locked in v5.5).
+		m.albedo_color = Color(1.30, 1.30, 1.36)
 		m.texture_repeat = true  # Godot 4.6: bool (repeat sampling)
 		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		_bld_mats[pair[0]] = m
-		# Baked per-face shading variants (generator assigns these
-		# to side / back faces): same texture, tinted albedo.
+		# Per-face variants (generator assigns these to side / back
+		# faces): same maps, mildly tinted albedo.
 		for suffix in ["S", "B"]:
 			var vm := StandardMaterial3D.new()
-			vm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			vm.albedo_texture = m.albedo_texture
+			vm.normal_enabled = true
+			vm.normal_texture = m.normal_texture
+			vm.normal_scale = 1.1
+			vm.roughness = 0.62
 			vm.texture_repeat = true
 			vm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-			vm.albedo_color = Color(0.74, 0.74, 0.78) if suffix == "S" else Color(0.52, 0.52, 0.58)
+			vm.albedo_color = Color(1.14, 1.14, 1.20) if suffix == "S" else Color(0.91, 0.91, 0.99)
 			_bld_mats[pair[0] + suffix] = vm
 	var glass := StandardMaterial3D.new()
 	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -2334,3 +2355,320 @@ func _add_span(body: StaticBody3D, center: Vector3, size: Vector3, mat: Material
 	cs.position = center
 	cs.rotation.x = rot_x
 	body.add_child(cs)
+
+# ------------------------------------------------------------------
+# v5.9: facade greebles (AC units + drain pipes as MultiMeshes),
+# a second, farther skyline ring textured with the new window
+# tiles, and ground variation (soft grime blotches + rain
+# puddles) to break the PBR tiling monotony.
+# ------------------------------------------------------------------
+
+var greeble_count_v59: int = 0
+var skyline59_count: int = 0
+var puddle_count_v59: int = 0
+var blotch_count_v59: int = 0
+
+func _mm_emit(name: String, mesh: Mesh, mat: Material,
+		xforms: Array[Transform3D], colors: Array[Color] = [],
+		shadow_off: bool = false) -> void:
+	if xforms.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	if not colors.is_empty():
+		mm.use_colors = true
+	mm.mesh = mesh
+	mm.instance_count = xforms.size()
+	for i in range(xforms.size()):
+		mm.set_instance_transform(i, xforms[i])
+		if not colors.is_empty():
+			mm.set_instance_color(i, colors[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = name
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	if shadow_off:
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+
+func _build_greebles_v59() -> void:
+	var ac_xf: Array[Transform3D] = []
+	var fan_xf: Array[Transform3D] = []
+	var pipe_xf: Array[Transform3D] = []
+	var grng := RandomNumberGenerator.new()
+	grng.seed = 5901
+	# Face table: [yaw offset, is_z_face, sign]
+	var faces: Array = [
+		[0.0, true, 1.0], [PI, true, -1.0],
+		[PI * 0.5, false, 1.0], [-PI * 0.5, false, -1.0]]
+	for b in _buildings:
+		if ac_xf.size() + fan_xf.size() + pipe_xf.size() >= 348:
+			break
+		if not b.has("rot") or bool(b.get("fixed", false)):
+			continue
+		var c: Vector3 = b["center"]
+		var fp: Vector2 = b["fp"]
+		var h: float = float(b["height"])
+		if h < 9.0 or h > 70.0 or fp.x < 8.0 or fp.y < 8.0:
+			continue
+		if grng.randf() < 0.30:
+			continue
+		var rot: float = float(b["rot"])
+		var rb := Basis(Vector3.UP, rot)
+		var n_ac: int = 1 + (1 if grng.randf() < 0.5 else 0)
+		var used: Array = []
+		for k in range(n_ac):
+			var fi: int = grng.randi() % 4
+			if fi in used:
+				continue
+			used.append(fi)
+			var f: Array = faces[fi]
+			var yaw: float = rot + float(f[0])
+			var is_z: bool = f[1]
+			var sgn: float = f[2]
+			var half_face: float = (fp.y if is_z else fp.x) * 0.5
+			var along_half: float = (fp.x if is_z else fp.y) * 0.5
+			var along: float = grng.randf_range(-along_half + 1.3, along_half - 1.3)
+			var ay: float = grng.randf_range(3.2, minf(h - 1.6, 26.0))
+			var lp: Vector3 = (Vector3(along, ay, sgn * half_face) if is_z
+				else Vector3(sgn * half_face, ay, along))
+			var nrm: Vector3 = Vector3(0, 0, sgn) if is_z else Vector3(sgn, 0, 0)
+			var ac_pos: Vector3 = c + rb * (lp + nrm * 0.19)
+			ac_xf.append(Transform3D(
+				Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(0.95, 0.7, 0.42)),
+				ac_pos))
+			var fan_pos: Vector3 = c + rb * (lp + nrm * 0.43)
+			fan_xf.append(Transform3D(
+				Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5) * Basis.from_scale(Vector3(0.56, 0.05, 0.56)),
+				fan_pos))
+		if grng.randf() < 0.45:
+			var f2: Array = faces[grng.randi() % 4]
+			var is_z2: bool = f2[1]
+			var sgn2: float = f2[2]
+			var half_face2: float = (fp.y if is_z2 else fp.x) * 0.5
+			var along_half2: float = (fp.x if is_z2 else fp.y) * 0.5
+			var along2: float = (along_half2 - 0.9) * (1.0 if grng.randf() < 0.5 else -1.0)
+			var len: float = h * grng.randf_range(0.5, 0.85)
+			var lp2: Vector3 = (Vector3(along2, 0, sgn2 * half_face2) if is_z2
+				else Vector3(sgn2 * half_face2, 0, along2))
+			var nrm2: Vector3 = Vector3(0, 0, sgn2) if is_z2 else Vector3(sgn2, 0, 0)
+			var pp: Vector3 = c + rb * (lp2 + nrm2 * 0.15)
+			pp.y = c.y + len * 0.5
+			pipe_xf.append(Transform3D(
+				Basis.from_scale(Vector3(0.17, len, 0.17)), pp))
+	greeble_count_v59 = ac_xf.size() + fan_xf.size() + pipe_xf.size()
+	var ac_mesh := BoxMesh.new()
+	ac_mesh.size = Vector3.ONE
+	var ac_mat := StandardMaterial3D.new()
+	ac_mat.albedo_color = Color(0.40, 0.42, 0.46)
+	ac_mat.roughness = 0.55
+	ac_mat.metallic = 0.3
+	_mm_emit("GreebleAC", ac_mesh, ac_mat, ac_xf)
+	var fan_mesh := CylinderMesh.new()
+	fan_mesh.top_radius = 0.5
+	fan_mesh.bottom_radius = 0.5
+	fan_mesh.height = 1.0
+	fan_mesh.radial_segments = 12
+	var fan_mat := StandardMaterial3D.new()
+	fan_mat.albedo_color = Color(0.15, 0.16, 0.18)
+	fan_mat.roughness = 0.75
+	_mm_emit("GreebleFan", fan_mesh, fan_mat, fan_xf)
+	var pipe_mesh := CylinderMesh.new()
+	pipe_mesh.top_radius = 0.5
+	pipe_mesh.bottom_radius = 0.5
+	pipe_mesh.height = 1.0
+	pipe_mesh.radial_segments = 8
+	var pipe_mat := StandardMaterial3D.new()
+	pipe_mat.albedo_color = Color(0.22, 0.23, 0.26)
+	pipe_mat.roughness = 0.5
+	pipe_mat.metallic = 0.45
+	_mm_emit("GreeblePipe", pipe_mesh, pipe_mat, pipe_xf)
+
+## Box ArrayMesh whose UVs are pre-scaled (ru x rv repeats baked
+## in) so the shared unit-box MultiMesh trick keeps real-world
+## window sizes without touching uv1_scale (llvmpipe trap).
+func _skyline_box_mesh(ru: float, rv: float) -> ArrayMesh:
+	var bm := BoxMesh.new()
+	bm.size = Vector3.ONE
+	var arrays: Array = bm.surface_get_arrays(0)
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	for i in range(uvs.size()):
+		uvs[i] = Vector2(uvs[i].x * ru, uvs[i].y * rv)
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return am
+
+func _build_skyline_v59() -> void:
+	# Second backdrop ring, FARTHER and taller than the v4 ring,
+	# textured with the new window tiles (darkened to silhouettes).
+	# Three size classes, one MultiMesh each; no collision, no
+	# shadow casting — fog does the depth cueing.
+	var classes: Array = [
+		# [uv repeats, dark material source]
+		[Vector2(5.0, 7.0), "BldEntA"],
+		[Vector2(7.5, 12.0), "BldKitA"],
+		[Vector2(9.5, 21.0), "BldMilA"]]
+	var srng := RandomNumberGenerator.new()
+	srng.seed = 5902
+	var per_class: Array = [[], [], []]
+	var ang: float = 0.0
+	var idx: int = 0
+	while ang < TAU and idx < 56:
+		var r: float = srng.randf_range(380.0, 650.0)
+		var pos := Vector3(cos(ang) * r, 0, sin(ang) * r)
+		var ci: int = idx % 3
+		var w: float = srng.randf_range(30.0, 68.0)
+		var h: float = srng.randf_range(60.0, 210.0)
+		if idx % 8 == 3:
+			h = srng.randf_range(230.0, 300.0)
+			ci = 2
+		var rot: float = srng.randf() * PI
+		var xf := Transform3D(
+			Basis.from_euler(Vector3(0, rot, 0)) * Basis.from_scale(Vector3(w, h, w)),
+			Vector3(pos.x, h * 0.5 - 2.0, pos.z))
+		(per_class[ci] as Array).append(xf)
+		ang += srng.randf_range(0.09, 0.16)
+		idx += 1
+	skyline59_count = idx
+	for ci in range(3):
+		var src: StandardMaterial3D = _bld_mats[String(classes[ci][1])]
+		var dm := StandardMaterial3D.new()
+		dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		dm.albedo_texture = src.albedo_texture
+		dm.albedo_color = Color(0.30, 0.33, 0.40)
+		dm.texture_repeat = true
+		dm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var reps: Vector2 = classes[ci][0]
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "Skyline59_%d" % ci
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _skyline_box_mesh(reps.x, reps.y)
+		var arr: Array = per_class[ci]
+		mm.instance_count = arr.size()
+		for i in range(arr.size()):
+			mm.set_instance_transform(i, arr[i])
+		mmi.multimesh = mm
+		mmi.material_override = dm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mmi)
+
+var _blotch_tex: ImageTexture
+
+func _blotch_texture() -> ImageTexture:
+	if _blotch_tex != null:
+		return _blotch_tex
+	var s: int = 256
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1, 1, 1, 0))
+	var brng := RandomNumberGenerator.new()
+	brng.seed = 5904
+	for b in range(24):
+		var cx: float = brng.randf_range(30.0, s - 30.0)
+		var cy: float = brng.randf_range(30.0, s - 30.0)
+		var rad: float = brng.randf_range(16.0, 58.0)
+		var peak: float = brng.randf_range(0.25, 0.55)
+		var x0: int = maxi(0, int(cx - rad))
+		var x1: int = mini(s - 1, int(cx + rad))
+		var y0: int = maxi(0, int(cy - rad))
+		var y1: int = mini(s - 1, int(cy + rad))
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				var d: float = Vector2(x - cx, y - cy).length() / rad
+				if d >= 1.0:
+					continue
+				var a: float = pow(1.0 - d, 2.0) * peak
+				var px: Color = img.get_pixel(x, y)
+				px.a = minf(1.0, px.a + a)
+				img.set_pixel(x, y, px)
+	_blotch_tex = ImageTexture.create_from_image(img)
+	return _blotch_tex
+
+func _build_ground_v59() -> void:
+	var grng := RandomNumberGenerator.new()
+	grng.seed = 5903
+	# --- grime blotches: large soft dark patches that break the
+	# 4-5 m PBR tiling rhythm at street distance.
+	var bmat := StandardMaterial3D.new()
+	bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bmat.albedo_texture = _blotch_texture()
+	bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bmat.vertex_color_use_as_albedo = true
+	bmat.albedo_color = Color(1, 1, 1)
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(1, 1)
+	var bxf: Array[Transform3D] = []
+	var bcol: Array[Color] = []
+	var tries: int = 0
+	while bxf.size() < 16 and tries < 60:
+		tries += 1
+		var px: float = grng.randf_range(-205.0, 205.0)
+		var pz: float = grng.randf_range(-205.0, 205.0)
+		var h0: float = _terrain_height(px, pz)
+		if h0 < -1.0:
+			continue  # canal
+		var sc: float = grng.randf_range(17.0, 40.0)
+		var flat_ok: bool = true
+		for o in [Vector2(sc * 0.3, 0), Vector2(-sc * 0.3, 0),
+				Vector2(0, sc * 0.3), Vector2(0, -sc * 0.3)]:
+			if absf(_terrain_height(px + o.x, pz + o.y) - h0) > 0.9:
+				flat_ok = false
+				break
+		if not flat_ok:
+			continue
+		var yaw: float = grng.randf() * TAU
+		bxf.append(Transform3D(
+			Basis(Vector3.UP, yaw) * Basis.from_scale(
+				Vector3(sc, 1, sc * grng.randf_range(0.6, 1.0))),
+			Vector3(px, h0 + 0.055, pz)))
+		bcol.append(Color(0.04, 0.04, 0.05, grng.randf_range(0.30, 0.5)))
+	blotch_count_v59 = bxf.size()
+	_mm_emit("GrimeBlotches", plane, bmat, bxf, bcol, true)
+	# --- rain puddles: smooth dark ellipses on flat road segments
+	# and the plaza; roughness ~0 catches the moon as a sheen.
+	var pmat := StandardMaterial3D.new()
+	pmat.albedo_texture = _soft_pool_texture()
+	pmat.albedo_color = Color(0.06, 0.08, 0.11, 0.88)
+	pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pmat.roughness = 0.06
+	var pxf: Array[Transform3D] = []
+	for r in _layout["roads"]:
+		if pxf.size() >= 36:
+			break
+		var pts: Array = r["pts"]
+		var w: float = float(r["w"])
+		for i in range(pts.size() - 1):
+			if pxf.size() >= 36:
+				break
+			if grng.randf() < 0.45:
+				continue
+			var a := Vector2(float(pts[i][0]), float(pts[i][1]))
+			var b2 := Vector2(float(pts[i + 1][0]), float(pts[i + 1][1]))
+			var ha: float = _terrain_height(a.x, a.y)
+			var hb: float = _terrain_height(b2.x, b2.y)
+			if ha > 1.2 or hb > 1.2 or absf(ha - hb) > 0.8:
+				continue  # climbing / terrace roads stay dry
+			var t: float = grng.randf_range(0.25, 0.75)
+			var mid: Vector2 = a.lerp(b2, t)
+			var dir: Vector2 = (b2 - a).normalized()
+			var side := Vector2(-dir.y, dir.x) * grng.randf_range(-w * 0.22, w * 0.22)
+			var pp := Vector3(mid.x + side.x, 0, mid.y + side.y)
+			pp.y = _terrain_height(pp.x, pp.z) + 0.10
+			var yaw2: float = atan2(dir.x, dir.y) + grng.randf_range(-0.4, 0.4)
+			pxf.append(Transform3D(
+				Basis(Vector3.UP, yaw2) * Basis.from_scale(Vector3(
+					grng.randf_range(2.4, 5.5), 1, grng.randf_range(1.2, 2.8))),
+				pp))
+	for k in range(8):
+		if pxf.size() >= 44:
+			break
+		var ang: float = grng.randf() * TAU
+		var rad: float = grng.randf_range(9.0, 30.0)
+		var pp := Vector3(cos(ang) * rad, 0.10, sin(ang) * rad)
+		pxf.append(Transform3D(
+			Basis(Vector3.UP, grng.randf() * TAU) * Basis.from_scale(Vector3(
+				grng.randf_range(2.5, 6.0), 1, grng.randf_range(1.4, 3.0))),
+			pp))
+	puddle_count_v59 = pxf.size()
+	_mm_emit("RainPuddles", plane, pmat, pxf, [], true)
