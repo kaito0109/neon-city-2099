@@ -94,7 +94,13 @@ jobs:
       - name: Export Xcode project (iOS preset)
         run: |
           mkdir -p build/ios
-          "$GODOT" --headless --path . --export-release "iOS" build/ios/NeonCity2099
+          # On macOS, Godot's iOS export ALSO tries to archive the app with
+          # xcodebuild, which fails with the dummy Team ID (no provisioning
+          # profile on the runner). The Xcode project itself is generated
+          # before that step, so tolerate the export's failure and build
+          # the generated project ourselves, unsigned, in the next step.
+          "$GODOT" --headless --path . --export-release "iOS" build/ios/NeonCity2099 || true
+          test -d build/ios/NeonCity2099.xcodeproj
           ls -lh build/ios
 
       - name: Build unsigned .app with xcodebuild
