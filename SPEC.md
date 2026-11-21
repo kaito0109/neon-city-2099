@@ -1111,3 +1111,18 @@ artifacts with the default name, and Pages rejected the duplicate. The Web
 workflow now names artifacts by run attempt and polls the run's artifact API
 before deployment, with explicit read-only Actions permission. This preserves
 the existing export/build flow and avoids duplicate names on future retries.
+
+## v6.5 — Casino walk-through doors and forecourt
+
+- Walk to the back of the street vestibule to enter the casino. Walk
+  through the interior EXIT glass doors to return to the forecourt.
+  Arrival points sit outside the transition zones. Other stores use
+  their existing controls, and the casino retains ACT as a shortcut.
+  Automatic transfers require an active on-foot player and no open
+  casino panel or map.
+- Use the original plaza ground as the forecourt surface. Remove the
+  competing pavement and wet overlays, exclude generic puddles and grime
+  around the entrance, and define the approach with stone edging and an
+  original Blender cast-metal drain shipped as a ModelBlob.
+- Godot 4.6.3 headless checks passed for repeated transfers and arrival
+  separation, existing casino interaction, saves and earlier UI regressions.

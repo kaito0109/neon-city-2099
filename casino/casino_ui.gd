@@ -278,6 +278,9 @@ func _card_rect(card: int, back: bool, w: float = 62.0) -> TextureRect:
 func _near(pos: Vector3, d: float) -> bool:
 	return _player.global_position.distance_to(pos) < d
 
+func has_open_panel() -> bool:
+	return not _seated.is_empty() or (_root != null and _root.mouse_filter == Control.MOUSE_FILTER_STOP)
+
 func handle_interact() -> void:
 	if _main == null or _site.is_empty() or not _seated.is_empty():
 		return

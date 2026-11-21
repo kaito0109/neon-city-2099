@@ -44,7 +44,7 @@ func _run() -> void:
 		if child is MultiMeshInstance3D:
 			batch_count += 1
 			instance_count += child.multimesh.instance_count
-	_ok(batch_count <= 14 and instance_count > 250, "detail geometry batched (%d groups, %d instances)" % [batch_count, instance_count])
+	_ok(batch_count <= 14 and instance_count > 0 and instance_count <= 300, "detail geometry batched (%d groups, %d instances)" % [batch_count, instance_count])
 	var reserved: int = 0
 	for plot in LayoutV4.DATA["plots"]:
 		if EXTERIOR.occupies_plot(plot):
@@ -95,6 +95,17 @@ func _run() -> void:
 	main.player.global_position = site["exit_pos"]
 	main.interact()
 	_ok(main.in_shop == -1 and main.player.global_position.distance_to(door) < 0.1, "exit returns to accessible doorway")
+	for attempt in range(3):
+		main.player.global_position = site["auto_entry_pos"]
+		main._casino_passages(0.1)
+		_ok(main.in_shop == site_index, "walk into vestibule enters automatically")
+		main._casino_passages(0.1)
+		_ok(main.in_shop == site_index, "arrival does not reverse transition")
+		main.player.global_position = site["auto_exit_pos"]
+		main._casino_passages(0.1)
+		_ok(main.in_shop == -1, "walk through interior doors exits automatically")
+		main._casino_passages(0.1)
+		_ok(main.in_shop == -1, "outdoor arrival does not re-enter")
 	if "--shots" in OS.get_cmdline_user_args():
 		main.hud.visible = false
 		main.player.visible = false

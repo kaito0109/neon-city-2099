@@ -760,6 +760,33 @@ func _rescue_fallout() -> void:
 
 # --- Per-frame ---
 
+func _casino_passages(delta: float) -> void:
+	var p := player.global_position
+	for i in range(city.shop_sites.size()):
+		var site: Dictionary = city.shop_sites[i]
+		if site["kind"] != "casino":
+			continue
+		var can_cross: bool = player.input_enabled and not player.dead and player.in_car == null and not hud.big_map_open and not casino_ui.has_open_panel()
+		var exit_point: Vector3 = site["auto_exit_pos"]
+		var near_exit: bool = in_shop == i and p.distance_to(exit_point) < 5.0
+		for j in range(site["exit_doors"].size()):
+			var leaf: Node3D = site["exit_doors"][j]
+			var side: float = -1.0 if j == 0 else 1.0
+			leaf.position.x = move_toward(leaf.position.x, exit_point.x + side * (3.85 if near_exit else 1.32), delta * 8.0)
+		if not can_cross:
+			return
+		var target: Vector3 = site["auto_entry_pos"] if in_shop == -1 else exit_point
+		var offset := p - target
+		if absf(offset.x) > 2.45 or absf(offset.y) > 1.8 or absf(offset.z) > 0.65:
+			return
+		if in_shop == -1:
+			_enter_shop(i)
+			player.face_passage(0.0)
+		elif in_shop == i:
+			_exit_shop()
+			player.face_passage(0.0)
+		return
+
 func _process(delta: float) -> void:
 	_clock_min += delta * 2.0
 	if _clock_min >= 1440.0:
@@ -782,6 +809,7 @@ func _process(delta: float) -> void:
 	if player.global_position.y < -8.0 and in_shop < 0:
 		_rescue_fallout()
 		return
+	_casino_passages(delta)
 	_update_mission(delta)
 	_update_wanted(delta)
 	_update_prompts()
