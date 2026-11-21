@@ -1055,7 +1055,7 @@ func _build_pois() -> void:
 	for k in pois["kiosks"]:
 		_add_kiosk(Vector3(float(k[0]), _ground_y(float(k[0]), float(k[2])), float(k[2])))
 	for t in pois["terminals"]:
-		var tp := Vector3(float(t[0]), _ground_y(float(t[0]), float(t[2])), float(t[2]))
+		var tp := Vector3(float(t[0]), _terrain_height(float(t[0]), float(t[2])), float(t[2]))
 		poi_terminals.append(tp)
 		_add_terminal(tp)
 	for p in pois["pickups"]:
@@ -3028,3 +3028,4 @@ func _build_casino() -> void:
 			"chandeliers": chandeliers,
 		},
 	})
+
