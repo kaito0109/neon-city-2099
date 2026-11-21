@@ -1040,3 +1040,26 @@ and the Godot preset's Team ID is a dummy).
   renderer shutdown warnings. No full-city screenshot, Web export or iPhone
   native/touch verification yet. This entry describes a proposed fix, not a
   deployed release; public v6.1 is unchanged until main is updated.
+
+## v6.3 — casino information, sign orientation and chip HUD (2026-11-21)
+
+- Priority fixes from Web playtesting: NEON CIRCLE lettering was mirrored
+  from inside the room; rotate its front toward +X (the counter's room side).
+  Information text exceeded the screen and hid Close; scroll its content
+  while keeping Close in a fixed footer, using the v6.2 viewport-height cap.
+- Show cash and current chip balance together in the regular top-left HUD:
+  `€$ 430 | CHIP 250`. main passes the live chip balance every HUD update,
+  so purchases, cash-outs and game payouts are reflected without reopening UI.
+- Extended tests/v62_regression_test.gd: information Close is visible and
+  accepts viewport mouse clicks at 1152x648, 1408x648 and 1152x500; closing
+  removes the panel and releases its input filter. HUD balances 0 / 250 /
+  123456789 render without overlapping mission text. Existing roulette and
+  hacking regressions remain covered.
+- tests/casino_test.gd also checks the actual NEON CIRCLE front normal faces
+  +X and verifies that main supplies the current 100000-chip balance to HUD.
+- Local verification uses Godot 4.7.2 headless with the same partial model
+  set described in v6.2. Native iPhone/touch and visual screenshot checks
+  remain unverified; full-city visual assets are not present locally.
+- v6.2 was merged in PR #1 and its Web deployment succeeded before these
+  new issues were reported; the v6.2 section's proposed-release wording
+  records its pre-publication verification state.

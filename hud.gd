@@ -84,7 +84,7 @@ func build(font: Font, latin: Font = null) -> void:
 	_hp_fill_low = CpUi.style(Vector2i(170, 17), CpUi.RED, CpUi.RED, 5.0, 1.0, CpUi.C_DIAG, Color(0, 0, 0, 0), 10)
 	hp_bar.add_theme_stylebox_override("fill", _hp_fill_ok)
 	root.add_child(hp_bar)
-	money_label = _mk_label("€$ 0", 22, CpUi.YELLOW)
+	money_label = _mk_label("€$ 0   |   CHIP 0", 22, CpUi.YELLOW)
 	money_label.position = Vector2(16, 34)
 	root.add_child(money_label)
 	wanted_label = _mk_label("", 22, CpUi.RED)
@@ -265,11 +265,11 @@ func hide_panel() -> void:
 var _hp_fill_ok: StyleBox
 var _hp_fill_low: StyleBox
 
-func set_stats(hp: float, money: int, wanted: int, clock_str: String) -> void:
+func set_stats(hp: float, money: int, wanted: int, clock_str: String, chips: int = 0) -> void:
 	hp_bar.value = hp
 	hp_label.text = "HP %d" % int(hp)
 	hp_bar.add_theme_stylebox_override("fill", _hp_fill_low if hp < 30.0 else _hp_fill_ok)
-	money_label.text = "€$ %d" % money
+	money_label.text = "€$ %d   |   CHIP %d" % [money, chips]
 	wanted_label.text = "★".repeat(wanted) if wanted > 0 else ""
 	clock_label.text = clock_str
 
@@ -409,3 +409,4 @@ func _is_look_area(pos: Vector2) -> bool:
 		if joystick.get_global_rect().has_point(pos):
 			return false
 	return true
+
