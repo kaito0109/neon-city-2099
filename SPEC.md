@@ -1063,3 +1063,42 @@ and the Godot preset's Team ID is a dummy).
 - v6.2 was merged in PR #1 and its Web deployment succeeded before these
   new issues were reported; the v6.2 section's proposed-release wording
   records its pre-publication verification state.
+
+## v6.4 — NEON PEARL landmark resort and forecourt (2026-11-21)
+
+- Replace the 24 m-wide shallow casino frontage with a dedicated, procedural
+  resort exterior: approximately 38 m wide by 36 m deep, a 10 m podium, two
+  stepped/twisting hotel towers (20 / 18 storeys), a skybridge and a vertical
+  gold halo reaching about 90 m. The design uses gold, dark glass and stone
+  with an original NEON PEARL identity, inspired by grand casino resorts.
+- `casino/casino_exterior.gd` owns the architecture, forecourt and proximity
+  door animation; `casino/hotel_windows.gdshader` draws room windows/blinds
+  with stable warm/cool occupancy variation. Existing concrete ModelBlobs
+  provide surface detail; no new binary assets or external dependencies.
+- Reserve intersecting layout plots before building the city (two existing
+  plots). Move the electronics storefront from (10,35.5) to (17,32.8), ahead
+  of the podium, retaining its shop index/interior and mission integration.
+  Road lanes, clinic access and the casino's ACT/exit coordinates remain.
+- Add a deep entrance canopy, opening glass doors with handles/rails,
+  visible vestibule, illuminated approach, stone paving, planters, drains,
+  puddles, service conduits, roof plant, a night-food kiosk, wayfinding and
+  three standing/animated people using existing assets and NPC culling.
+  The glass leaves are visual proximity doors; ACT still enters the casino
+  interior through the established shop transition.
+- Static detail boxes are grouped by material in MultiMeshes (11 groups,
+  roughly 270 instances); individual collision shapes cover the structural
+  masses and ground obstacles. Only two local lights are added, with no
+  shadows and distance fading. The window shader and instancing target GL
+  Compatibility; no SSR, volumetric fog or additional renderer features.
+- Verification on Godot 4.6.3: tests/casino_landmark_test.gd checks reserved
+  plots, batching, actual structural collision, road/clinic/shop clearance,
+  sliding doors including vertical separation from the below-ground room,
+  and ACT entry/exit. Its `--shots` option captures skyline, street, entrance
+  and side views with real GL Compatibility rendering. Also run the existing
+  casino logic (113 checks), casino integration, v62 UI/terminal regressions
+  and v54 shop/footbridge tests.
+- Limits: screenshots use a software GL desktop, not iPhone GPU/Web touch.
+  No measured iPhone FPS or memory benchmark. Existing glTF UV/triplanar
+  warnings and cached-model renderer cleanup warnings are outside this
+  change. The rest of the city retains its existing generation; this pass
+  concentrates environmental detail around the casino.

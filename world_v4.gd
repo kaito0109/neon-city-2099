@@ -530,6 +530,8 @@ func _build_plots() -> void:
 	var claims := _skf_claims_v55()
 	for p in _layout["plots"]:
 		var plot: Dictionary = p
+		if CasinoExterior.occupies_plot(plot):
+			continue
 		var center := Vector3(float(plot["x"]), float(plot["y"]), float(plot["z"]))
 		# v5.5: plots claimed by a Sketchfab hero building are left
 		# empty here; _build_heroes_v55 fills them.
@@ -2123,7 +2125,9 @@ const SHOP_DEFS: Array = [
 		"color": Color(1.0, 0.8, 0.35), "clerk": "AnimatedWoman",
 		"items": [{"id": "coffee", "label": "コーヒー", "price": 20, "heal": 10.0},
 			{"id": "drink", "label": "栄養ドリンク", "price": 30, "heal": 25.0}]},
-	{"name": "電脳店デンキバ", "kind": "denki", "door": [10.0, 35.5], "face": [0.0, -1.0],
+	# Retail frontage moves ahead of the new casino podium, keeping
+	# the existing shop and delivery/errand destinations accessible.
+	{"name": "電脳店デンキバ", "kind": "denki", "door": [17.0, 32.8], "face": [0.0, -1.0],
 		"color": Color(0.55, 0.5, 1.0), "clerk": "SciFi", "items": []},
 	{"name": "ブティック 2099", "kind": "boutique", "door": [116.5, 60.0], "face": [-1.0, 0.0],
 		"color": Color(1.0, 0.4, 0.75), "clerk": "WomanCasual", "items": []},
@@ -2682,6 +2686,7 @@ func _build_ground_v59() -> void:
 ## is 88x58 m at y=-60 (the six small shops sit at y=-40), entered
 ## through a grand facade on the plaza's south row. All game logic
 ## lives in casino/*_logic.gd; the panels live in casino/casino_ui.gd.
+const CasinoExterior := preload("res://casino/casino_exterior.gd")
 const CASINO_DOOR := Vector2(28.0, 35.5)
 const CASINO_FACE := Vector2(0.0, -1.0)
 
@@ -2717,39 +2722,12 @@ func _build_casino() -> void:
 	# local -> world helper (interior local origin = C, x east, z south)
 	var L := func(lx: float, ly: float, lz: float) -> Vector3:
 		return C + Vector3(lx, ly, lz)
-	# --- street facade: gold glass + pink neon, plaza south row ---
-	# The plot behind this frontage is a kit tower whose own shopfront
-	# modules reach z~33.8, so the casino front is built as a portico
-	# standing ~2 m proud of that face (cheeks + canopy close the gap).
-	var panel := Node3D.new()
-	panel.position = Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y - 2.1)
-	panel.rotation.y = atan2(CASINO_FACE.x, CASINO_FACE.y)
-	add_child(panel)
-	var gold_glass := _mat(Color(0.72, 0.55, 0.20), 0.55, 0.4)
-	gold_glass.metallic = 0.4
-	gold_glass.metallic_specular = 0.5
-	_box(panel, Vector3(24.0, 9.0, 0.6), Vector3(0, 4.5, 0), gold_glass, true)
-	_box(panel, Vector3(0.5, 9.0, 2.4), Vector3(-11.9, 4.5, -1.2), gold_glass, true)
-	_box(panel, Vector3(0.5, 9.0, 2.4), Vector3(11.9, 4.5, -1.2), gold_glass, true)
-	_box(panel, Vector3(24.4, 0.5, 2.6), Vector3(0, 9.2, -1.1), gold_mat)
-	_box(panel, Vector3(24.4, 0.7, 0.7), Vector3(0, 9.2, 0), gold_mat)
-	_box(panel, Vector3(24.4, 0.5, 0.7), Vector3(0, 0.25, 0), gold_mat)
-	for sx in [-9.6, -4.8, 4.8, 9.6]:
-		_box(panel, Vector3(0.35, 8.6, 0.68), Vector3(sx, 4.5, 0), pink_glow)
-	# entrance recess + glow door (the actual door is the teleport)
-	_box(panel, Vector3(4.2, 3.6, 0.75), Vector3(0, 1.8, 0), dark_mat)
-	_box(panel, Vector3(3.4, 3.0, 0.8), Vector3(0, 1.5, 0), _mat(Color(0.45, 0.35, 0.55), 0.5, 0.3))
-	_box(panel, Vector3(5.2, 0.35, 0.85), Vector3(0, 3.55, 0), cyan_glow)
-	var fsign := _label3d("CASINO NEON PEARL", Vector3(0, 7.6, 0.55), 210, Color(1.0, 0.45, 0.75), panel)
-	fsign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var fsub := _label3d("POKER  •  ROULETTE  •  BLACKJACK", Vector3(0, 6.2, 0.55), 74, Color(0.55, 0.95, 1.0), panel)
-	fsub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	# red carpet from the door into the plaza + bollard lights
-	_box(self, Vector3(3.6, 0.06, 6.0), Vector3(CASINO_DOOR.x, gy + 0.03, CASINO_DOOR.y - 4.6), _mat(Color(0.42, 0.05, 0.22), 0.15, 0.9))
-	for bx in [-2.3, 2.3]:
-		for bz in [-2.5, -5.5]:
-			_box(self, Vector3(0.16, 0.7, 0.16), Vector3(CASINO_DOOR.x + bx, gy + 0.35, CASINO_DOOR.y + bz), gold_mat)
-			_box(self, Vector3(0.22, 0.12, 0.22), Vector3(CASINO_DOOR.x + bx, gy + 0.74, CASINO_DOOR.y + bz), lamp_mat)
+	# A dedicated landmark replaces the shallow frontage. Its footprint is
+	# reserved above in _build_plots so old towers cannot intersect it.
+	var exterior := CasinoExterior.new()
+	exterior.position = Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y - 2.1)
+	add_child(exterior)
+	exterior.build(_font)
 	# --- interior shell: floor / ceiling / walls (88 x 58, h 8) ---
 	_box(self, Vector3(88.0, 0.3, 58.0), L.call(0, -0.15, 0), carpet_mat, true)
 	_box(self, Vector3(64.0, 0.06, 30.0), L.call(-4, 0.03, 0), pit_mat)  # pit inlay
