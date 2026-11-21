@@ -542,7 +542,7 @@ func _refresh_cage(vb: VBoxContainer) -> void:
 		amt.text = "選択中: %d チップ" % _cage_amount
 
 func _open_info() -> void:
-	var vb := _open_panel("インフォメーション", Vector2(640, 520))
+	var vb := _open_panel("インフォメーション", Vector2(640, 520), true)
 	var txt := """ようこそ CASINO NEON PEARL へ。
 
 ■ チップ: 入口脇のキャッシャー（CASHIER）で €$ をチップに交換します（€$1 = 1チップ）。換金も同じ窓口で。
@@ -555,7 +555,7 @@ func _open_info() -> void:
 	vb.add_child(_mk_label(txt, 20, CpUi.ICY))
 	var close := _mk_button("閉じる", CpUi.CYAN_DIM, 140)
 	close.pressed.connect(_close_panel)
-	vb.add_child(close)
+	(vb.get_meta("actions_parent") as VBoxContainer).add_child(close)
 
 func _open_circle() -> void:
 	var vb := _open_panel("NEON CIRCLE", Vector2(520, 400))

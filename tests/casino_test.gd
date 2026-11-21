@@ -56,6 +56,11 @@ func _process(_delta: float) -> bool:
 				site = sites[i]
 				cz = site["casino"]
 		_ok(casino_i >= 0, "casino site found")
+		var circle_faces_room := false
+		for child in main.get("city").get_children():
+			if child is Label3D and child.text == "NEON CIRCLE":
+				circle_faces_room = child.global_basis.z.dot(Vector3.RIGHT) > 0.99
+		_ok(circle_faces_room, "NEON CIRCLE front faces room (+X)")
 		main.set("money", 5000)
 		player.global_position = site["door_pos"]
 		stage = 1
@@ -82,6 +87,7 @@ func _process(_delta: float) -> bool:
 		stage = 3
 		stage_t = 0
 	elif stage == 3 and stage_t > 10:
+		_ok("CHIP 100000" in String(main.get("hud").get("money_label").text), "HUD receives live chip balance")
 		main.call("interact")
 		_ok(not (cui.get("_seated") as Dictionary).is_empty(), "seated at BJ")
 		_ok(not bool(player.get("input_enabled")), "player input locked while seated")
@@ -180,3 +186,4 @@ func _process(_delta: float) -> bool:
 		print("CASINO_TEST_DONE fails=", fails)
 		quit(1 if fails > 0 else 0)
 	return false
+

@@ -2853,7 +2853,8 @@ func _build_casino() -> void:
 	_box(self, Vector3(0.9, 1.05, 5.0), L.call(-42.6, 0.52, 8), _mat(Color(0.16, 0.10, 0.22), 0.0, 0.6), true)
 	_box(self, Vector3(0.1, 1.5, 3.4), L.call(-43.6, 2.2, 8), cyan_glow)
 	var nl := _label3d("NEON CIRCLE", L.call(-42.4, 2.3, 8), 60, Color(0.6, 0.95, 1.0), self)
-	nl.rotation.y = -PI * 0.5
+	# The counter faces into the room (+X); -PI/2 exposes the mirrored back.
+	nl.rotation.y = PI * 0.5
 	# --- chandeliers (casino_ui rotates them slowly) ---
 	var chandeliers: Array = []
 	var ch0: Node3D = place.call("res://assets/models/casino_chandelier.glb", 0, 0, 0.0, 1.0, 8.0)

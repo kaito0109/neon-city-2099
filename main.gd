@@ -766,7 +766,7 @@ func _process(delta: float) -> void:
 		_clock_min -= 1440.0
 	var hh: int = int(_clock_min) / 60
 	var mm: int = int(_clock_min) % 60
-	hud.call("set_stats", float(player.get("hp")), money, wanted, "%02d:%02d" % [hh, mm])
+	hud.call("set_stats", float(player.get("hp")), money, wanted, "%02d:%02d" % [hh, mm], chips)
 	# Local save: flush within a frame of any balance change.
 	# This one check covers every mutation site — including the
 	# casino UI, which writes money/chips/stats via set() — so no
@@ -965,3 +965,4 @@ func _update_prompts() -> void:
 		elif mission == "hack" and _hack_channel < 0.0 and _nearest(city.get("poi_terminals"), p, 3.2) != null:
 			text = "F / ACT: ハッキング開始"
 	hud.call("set_prompt", text)
+
