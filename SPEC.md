@@ -898,3 +898,119 @@ the interior floor (88 x 58 m) floats at y=-60 under the plaza.
 - NOT verified: iPhone fps inside the casino (8 omnis + ~31 NPCs
   + moon shadows outside), touch play of the three game panels,
   his verdict. Not pushed (awaits his "Pushして").
+
+## v6.1 — local save (2026-11-21, his ask: 保存機能ない？ → ローカルでいい; Supabase declined)
+user://neon_save.json (JSON, "version": 1); on Web this is the
+engine's standard user:// -> IndexedDB mapping, so saves live in
+the player's browser per device. No account, no server.
+- Saved (all in main.gd): money, chips, casino_stats
+  {total_bet, total_returned} (NEON CIRCLE points = total_bet/100
+  and the rank/VIP gate derive from it), items. NOT saved:
+  position, mission, wanted, HP — a reload always spawns fresh
+  at the plaza with the balances intact. There is no
+  jobs-completed counter anywhere in the code, so none was
+  invented for the save.
+- Load: first thing in _ready (before the HUD/casino UI read any
+  value). Missing file, unparseable JSON, a non-dictionary root,
+  or a version mismatch all fall back to the fresh-start
+  defaults — a bad save can never block the boot. Values are
+  clamped to >= 0 and item counts re-typed to int on load.
+- Flush: save_game() is called explicitly after main's own money
+  events (_buy, _complete_mission reward, _die clinic fee), and
+  _process runs a field-by-field change check against the last
+  persisted snapshot every frame, so the casino UI's direct
+  set() writes (cage exchange, BJ/roulette/poker settlements)
+  are on disk within a frame — no save calls were threaded
+  through casino code. _notification also flushes on window
+  close / focus loss / app pause as a safety net. Full rewrite
+  each time (the payload is a few hundred bytes).
+- Verified: tests/save_test.gd 20 PASS / 0 FAIL (fresh-start
+  defaults, explicit save -> file contents, reset -> load
+  round-trip for all four state groups, auto-flush of plain
+  set() mutations, corrupt JSON / foreign version / non-dict
+  saves all ignored without a crash). Existing suites re-run
+  green with the save system live: casino_test fails=0,
+  v54 fails=0, v45 failed=false, v57 failed=false.
+  NOTE for test runs: suites assume a fresh start (casino_test
+  expects chips == 0 at the cage), and the game now persists
+  whatever a suite leaves behind — delete
+  user://neon_save.json between suite runs on this machine
+  (save_test deletes it before/after itself).
+- NOT verified: an actual browser reload cycle on the published
+  build (IndexedDB persistence across sessions is the engine's
+  standard behaviour but was not exercised end-to-end here),
+  iPhone Safari storage eviction behaviour. Not pushed.
+
+## iOS native build for AltStore (2026-11-21, his ask: ネイティブアプリにしたい / AltStore Classic 用に ipa 作れない？)
+
+Goal: an unsigned .ipa of NEON CITY that かいと can sideload onto his
+iPhone 16 Pro with AltStore Classic (AltStore re-signs with his free
+developer certificate at install time, so the build itself is unsigned
+and the Godot preset's Team ID is a dummy).
+
+- The iOS export failed for TWO stacked reasons, both root-caused
+  against the Godot 4.6.3 engine source:
+  1. `application/app_store_team_id` empty -> the option is registered
+     required and `get_export_option_warning` returns "App Store Team
+     ID not specified." -> export invalid (this error HAS text).
+  2. With a dummy Team ID filled in, the export still failed with
+     "configuration errors:" and an EMPTY detail list. Cause:
+     `EditorExportPlatformAppleEmbedded::has_valid_project_configuration`
+     (editor/export/editor_export_platform_apple_embedded.cpp) returns
+     false WITHOUT appending any message when
+     `ResourceImporterTextureSettings::should_import_etc2_astc()` is
+     false, i.e. unless project setting
+     `rendering/textures/vram_compression/import_etc2_astc` is enabled.
+     Icons were NOT the problem (all AppIcon sizes are auto-generated
+     from icon.svg), and neither was export_method (enum: App Store=0,
+     Development=1, Ad-Hoc=2, Enterprise=3; we use Development=1).
+- Fix verified locally (2026-11-21, in the throwaway copy
+  ~/workspace/ios_test/proj): dummy Team ID "ABCDE12345" +
+  `textures/vram_compression/import_etc2_astc=true` in project.godot +
+  reimport -> `--export-release "iOS"` exits 0 with only the expected
+  warning ".ipa can only be built on macOS. Leaving Xcode project
+  without building the package." Generated: NeonCity2099.xcodeproj
+  (scheme "NeonCity2099", DEVELOPMENT_TEAM=ABCDE12345,
+  IPHONEOS_DEPLOYMENT_TARGET=14.0), NeonCity2099/ app folder
+  (NeonCity2099-Info.plist, .entitlements, Images.xcassets with the
+  full AppIcon set, Launch Screen.storyboard, export_options.plist
+  with method=development), NeonCity2099.pck (~125 MB),
+  NeonCity2099.xcframework (libgodot.a, device + simulator),
+  MoltenVK.xcframework, PrivacyInfo.xcprivacy.
+- Production changes (this repo): export_presets.cfg gained
+  [preset.1] "iOS" (bundle id com.kaito0109.neoncity2099, short/full
+  version 6.0, export path build/ios/NeonCity2099, Web preset
+  untouched). The repo's project.godot deliberately does NOT enable
+  import_etc2_astc (the Web build doesn't need it); the CI workflow
+  enables it in its own checkout only. If exporting iOS locally from
+  the editor one day: Project Settings > Rendering > Textures >
+  VRAM Compression > "Import ETC2/ASTC" must be ON, then reimport.
+- Files app: the preset sets `user_data/accessible_from_files_app=true`
+  and `user_data/accessible_from_itunes_sharing=true`. Verified in the
+  generated Info.plist: these map (via the template's $docs_in_place /
+  $docs_sharing placeholders) to LSSupportsOpeningDocumentsInPlace=true
+  and UIFileSharingEnabled=true. Godot's user:// on iOS is the app's
+  Documents folder, so the v6.1 local save (neon_save.json) will be
+  visible/manageable in the Files app under "On My iPhone >
+  NEON CITY 2099" once installed.
+- CI: ios-deploy.yml.txt (repo root) is the workflow source, mirroring
+  web-deploy.yml.txt's conventions. It must be placed by hand as
+  .github/workflows/ios-deploy.yml (the assistant's connector cannot
+  push workflow files). Design: manual workflow_dispatch only (macOS
+  runners cost 10x minutes; push trigger included but commented out),
+  runs-on macos-15; downloads Godot 4.6.3 macOS + templates (ios.zip),
+  fetches player.glb / jpfont.ttf and decodes assets/models_b64 like
+  the web workflow, enables import_etc2_astc in the checkout only,
+  --import, --export-release "iOS" (Xcode project only, export path
+  has no .ipa extension on purpose), then
+  xcodebuild -scheme NeonCity2099 -configuration Release
+  -destination 'generic/platform=iOS' with CODE_SIGNING_ALLOWED=NO /
+  CODE_SIGNING_REQUIRED=NO / CODE_SIGN_IDENTITY="", zips Payload/
+  into NeonCity2099.ipa and uploads it as the "NeonCity2099-ipa"
+  artifact. YAML validated locally; the embedded ASTC python snippet
+  was executed against the real project.godot (works; repo file left
+  untouched).
+- NOT verified (needs the real run): xcodebuild itself (no macOS/Xcode
+  on this Linux VM), the Actions run end to end, AltStore install,
+  and on-device behaviour (performance, touch, save persistence in
+  the native build). Nothing pushed.

@@ -43,6 +43,12 @@ var _shop_target: int = -1         # shop index used by courier / errand
 var chips: int = 0
 var casino_stats: Dictionary = {"total_bet": 0, "total_returned": 0}
 var casino_ui: CanvasLayer = null
+# Local save (v6.1): balances + inventory persist in user://
+# (IndexedDB on Web). Position / mission / wanted are run state
+# and are never saved.
+const SAVE_PATH := "user://neon_save.json"
+const SAVE_VERSION := 1
+var _save_snapshot: Dictionary = {}
 var mission_stage: String = ""     # pickup: go|deliver ; race uses gate idx
 var mission_target_pos: Variant = null
 var _race_gates: Array[Vector3] = []
@@ -60,6 +66,7 @@ const SPAWN_POS := Vector3(0, 0.6, 48)    # v4: plaza south, facing the megabuil
 func _ready() -> void:
 	add_to_group("main")
 	_rng.seed = 777
+	load_game()
 	_build_environment()
 	game_font = _load_font()
 	city = CityScript.new()
@@ -170,6 +177,93 @@ func _load_font() -> Font:
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Hiragino Sans", "Noto Sans JP", "Yu Gothic", "Meiryo", "sans-serif"])
 	return sf
+
+# --- Local save (v6.1) ---
+# Saved: money, chips, casino_stats (NEON CIRCLE points and rank
+# derive from total_bet), items. Everything else is run state.
+# Flush policy: explicit save_game() after main's own money events
+# (buy / mission reward / clinic fee), plus a per-frame change
+# check in _process that catches the casino UI's direct set()s
+# (cage exchange, every game's settlement) within a frame, plus
+# a focus-loss / close flush in _notification.
+
+func _save_data() -> Dictionary:
+	return {
+		"version": SAVE_VERSION,
+		"money": money,
+		"chips": chips,
+		"casino_stats": casino_stats.duplicate(),
+		"items": items.duplicate(),
+	}
+
+func save_game() -> void:
+	var data: Dictionary = _save_data()
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(data))
+	f.close()
+	_save_snapshot = data.duplicate(true)
+
+func load_game() -> void:
+	# A missing / corrupt / foreign-version save must never block
+	# the boot: every failure path just keeps the fresh-start
+	# defaults.
+	if not FileAccess.file_exists(SAVE_PATH):
+		return
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		return
+	var d: Dictionary = parsed
+	if int(d.get("version", 0)) != SAVE_VERSION:
+		return
+	money = maxi(0, int(d.get("money", money)))
+	chips = maxi(0, int(d.get("chips", chips)))
+	var st: Variant = d.get("casino_stats")
+	if st is Dictionary:
+		casino_stats = {
+			"total_bet": maxi(0, int((st as Dictionary).get("total_bet", 0))),
+			"total_returned": maxi(0, int((st as Dictionary).get("total_returned", 0))),
+		}
+	var it: Variant = d.get("items")
+	if it is Dictionary:
+		var clean: Dictionary = {}
+		for k in (it as Dictionary).keys():
+			clean[String(k)] = maxi(0, int((it as Dictionary)[k]))
+		items = clean
+	_save_snapshot = _save_data().duplicate(true)
+
+func _save_is_dirty() -> bool:
+	if _save_snapshot.is_empty():
+		return true
+	if int(_save_snapshot.get("money", -1)) != money:
+		return true
+	if int(_save_snapshot.get("chips", -1)) != chips:
+		return true
+	var s: Dictionary = _save_snapshot.get("casino_stats", {})
+	if int(s.get("total_bet", -1)) != int(casino_stats.get("total_bet", 0)):
+		return true
+	if int(s.get("total_returned", -1)) != int(casino_stats.get("total_returned", 0)):
+		return true
+	var si: Dictionary = _save_snapshot.get("items", {})
+	if si.size() != items.size():
+		return true
+	for k in items.keys():
+		if int(si.get(k, -1)) != int(items[k]):
+			return true
+	return false
+
+func _notification(what: int) -> void:
+	# Safety net: closing the tab / losing focus on Web flushes
+	# any unsaved balance change.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
+		if _save_is_dirty():
+			save_game()
 
 func _spawn_cars() -> void:
 	# v4 spots sit on the authored roads: ring east/west edges, the SW
@@ -503,6 +597,7 @@ func _buy(b: Dictionary) -> void:
 		return
 	money -= price
 	items[id] = int(items.get(id, 0)) + 1
+	save_game()
 	_sync_item_hud()
 	hud.call("toast", "%s を購入（所持 ×%d）— H / ITEMで使用" % [String(b["label"]), int(items[id])])
 
@@ -625,6 +720,7 @@ func _complete_mission(reward: int, label: String) -> void:
 	_chip.visible = false
 	_gate_ring.visible = false
 	_hack_channel = -1.0
+	save_game()
 
 func add_wanted(n: int) -> void:
 	var before: int = wanted
@@ -646,6 +742,7 @@ func _die() -> void:
 		_exit_car()
 	player.global_position = CLINIC_POS + Vector3(0, 0.5, 0)
 	hud.call("show_center_message", "クローン再生… 治療費 €$%d" % fee)
+	save_game()
 
 func _rescue_fallout() -> void:
 	var car: Node3D = player.get("in_car")
@@ -670,6 +767,12 @@ func _process(delta: float) -> void:
 	var hh: int = int(_clock_min) / 60
 	var mm: int = int(_clock_min) % 60
 	hud.call("set_stats", float(player.get("hp")), money, wanted, "%02d:%02d" % [hh, mm])
+	# Local save: flush within a frame of any balance change.
+	# This one check covers every mutation site — including the
+	# casino UI, which writes money/chips/stats via set() — so no
+	# save calls had to be threaded through the casino code.
+	if _save_is_dirty():
+		save_game()
 	_hit_cd = maxf(0.0, _hit_cd - delta)
 	if not started:
 		return
