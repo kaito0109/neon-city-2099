@@ -122,7 +122,7 @@ jobs:
           rm -rf build/Payload
           mkdir -p build/Payload
           cp -R "build/DerivedData/Build/Products/Release-iphoneos/NeonCity2099.app" build/Payload/
-          cd build && zip -qry NeonCity2099.ipa Payload
+          (cd build && zip -qry NeonCity2099.ipa Payload)
           ls -lh build/NeonCity2099.ipa
 
       - name: Upload .ipa artifact
