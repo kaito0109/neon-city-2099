@@ -171,7 +171,10 @@ func _panel_style(w: int, h: int) -> StyleBoxTexture:
 		_sb_cache[key] = CpUi.style(Vector2i(w, h), CpUi.INK_SOLID, GOLD, 16.0, 3.0)
 	return _sb_cache[key]
 
-func _open_panel(title: String, min_size: Vector2) -> VBoxContainer:
+func _fit_scroll_panel(pc: PanelContainer, min_size: Vector2) -> void:
+	pc.custom_minimum_size = Vector2(min_size.x, minf(min_size.y, maxf(1.0, get_viewport().get_visible_rect().size.y - 32.0)))
+
+func _open_panel(title: String, min_size: Vector2, scrollable: bool = false) -> VBoxContainer:
 	_close_panel()
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	var pc := PanelContainer.new()
@@ -179,7 +182,25 @@ func _open_panel(title: String, min_size: Vector2) -> VBoxContainer:
 	pc.add_theme_stylebox_override("panel", _panel_style(int(min_size.x), int(min_size.y)))
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
-	pc.add_child(vb)
+	if scrollable:
+		var outer := VBoxContainer.new()
+		pc.add_child(outer)
+		var scroll := ScrollContainer.new()
+		scroll.name = "BetScroll"
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		outer.add_child(scroll)
+		scroll.add_child(vb)
+		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.set_meta("actions_parent", outer)
+		_fit_scroll_panel(pc, min_size)
+		var fit := func() -> void: _fit_scroll_panel(pc, min_size)
+		get_viewport().size_changed.connect(fit)
+		pc.tree_exiting.connect(func() -> void:
+			if get_viewport().size_changed.is_connected(fit):
+				get_viewport().size_changed.disconnect(fit))
+	else:
+		pc.add_child(vb)
 	var head := HBoxContainer.new()
 	var tl := _mk_label(title, 30, GOLD)
 	head.add_child(tl)
@@ -951,7 +972,7 @@ func _num_button(n: int) -> Button:
 	return b
 
 func _render_roulette() -> void:
-	var vb := _open_panel("ルーレット（ミニマム %d）" % int(_seated["min_bet"]), Vector2(780, 620))
+	var vb := _open_panel("ルーレット（ミニマム %d）" % int(_seated["min_bet"]), Vector2(780, 620), true)
 	vb.add_theme_constant_override("separation", 6)
 	if _roul_result != "":
 		vb.add_child(_mk_label(_roul_result, 22, GOLD))
@@ -1056,7 +1077,7 @@ func _render_roulette() -> void:
 	var leave := _mk_button("離席", CpUi.RED, 100)
 	leave.pressed.connect(_unseat)
 	arow.add_child(leave)
-	vb.add_child(arow)
+	(vb.get_meta("actions_parent") as VBoxContainer).add_child(arow)
 	_refresh_bal(vb)
 
 func _roul_spin() -> void:
@@ -1352,3 +1373,4 @@ func _render_poker() -> void:
 		_unseat())
 	arow.add_child(leave)
 	_refresh_bal(vb)
+

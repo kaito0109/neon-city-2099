@@ -1014,3 +1014,29 @@ and the Godot preset's Team ID is a dummy).
   on this Linux VM), the Actions run end to end, AltStore install,
   and on-device behaviour (performance, touch, save persistence in
   the native build). Nothing pushed.
+
+
+## v6.2 — roulette viewport and hacking terminal fixes (proposed, 2026-11-21)
+
+- Roulette betting content scrolls vertically; SPIN / leave and the other
+  action buttons stay in a fixed footer. Panel height follows the visible
+  viewport (32 px margin) on open and resize, so results and long bet lists
+  cannot push the actions below the screen. Other casino panels retain their
+  existing layout.
+- Move the west hacking terminal from (-160, -30), inside the building at
+  (-163.9, -29.8), to (-154, -30), outside its footprint. Update both generated
+  layout data and its Blender generator. Terminal visuals and mission targets
+  use the same terrain height function as the current terrain.
+- Add `tests/v62_regression_test.gd`: viewport sizes 1152x648, 1408x648 and
+  1152x500, empty / 37-number bets with results, scrolling, live resize,
+  four terminal geometries, terrain heights and building clearance.
+- Validation: regression test passes (the pre-fix UI/layout fails 15 checks);
+  existing casino logic test passes 113 checks; existing casino integration
+  test passes with a fresh isolated user-data directory.
+- Validation limits: executed headless on available Godot 4.7.2, not target
+  4.6.3. Only the roulette wheel and font ModelBlobs were fetched for integration;
+  the terrain and remaining visual models were unavailable locally. Integration
+  used the existing terrain fallback and reports the missing terrain plus
+  renderer shutdown warnings. No full-city screenshot, Web export or iPhone
+  native/touch verification yet. This entry describes a proposed fix, not a
+  deployed release; public v6.1 is unchanged until main is updated.
