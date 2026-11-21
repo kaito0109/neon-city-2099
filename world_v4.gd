@@ -53,6 +53,7 @@ func build(font: Font) -> void:
 	_build_air_traffic()
 	_build_roadworks_v53()
 	_build_shops()
+	_build_casino()
 	_build_footbridge()
 	_build_beacons_v56()
 	_build_greebles_v59()
@@ -2672,3 +2673,358 @@ func _build_ground_v59() -> void:
 			pp))
 	puddle_count_v59 = pxf.size()
 	_mm_emit("RainPuddles", plane, pmat, pxf, [], true)
+
+# --- v6.0 casino: CASINO NEON PEARL ------------------------------------
+## His 2026-11-21 ask: an Okada-Manila-style casino — real poker,
+## roulette and blackjack, bodyguards, an information desk and a
+## cashier cage. Plan: design/casino_plan.md. The casino rides the
+## shop system (a shop_sites entry with kind "casino") but the room
+## is 88x58 m at y=-60 (the six small shops sit at y=-40), entered
+## through a grand facade on the plaza's south row. All game logic
+## lives in casino/*_logic.gd; the panels live in casino/casino_ui.gd.
+const CASINO_DOOR := Vector2(28.0, 35.5)
+const CASINO_FACE := Vector2(0.0, -1.0)
+
+func _build_casino() -> void:
+	var C := Vector3(CASINO_DOOR.x, -60.0, CASINO_DOOR.y)
+	var gy: float = _terrain_height(CASINO_DOOR.x, CASINO_DOOR.y)
+	# --- materials ---
+	var wall_mat := _mat(Color(0.21, 0.12, 0.31), 0.0, 0.9)        # deep plum
+	var wall2_mat := _mat(Color(0.15, 0.09, 0.22), 0.0, 0.95)
+	var gold_mat := _mat(Color(0.83, 0.62, 0.25), 0.25, 0.35)
+	gold_mat.metallic = 0.85
+	gold_mat.metallic_specular = 0.7
+	var pink_glow := _mat(Color(1.0, 0.25, 0.65), 1.5, 0.5)
+	var cyan_glow := _mat(Color(0.3, 0.9, 1.0), 1.3, 0.5)
+	var dark_mat := _mat(Color(0.04, 0.03, 0.06), 0.0, 0.95)
+	var ceil_mat := _mat(Color(0.07, 0.05, 0.10), 0.0, 0.9)
+	var lamp_mat := _mat(Color(1.0, 0.9, 0.7), 1.9, 0.4)
+	var glass_mat := StandardMaterial3D.new()
+	glass_mat.albedo_color = Color(0.55, 0.75, 0.9, 0.16)
+	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_mat.metallic = 0.4
+	glass_mat.roughness = 0.15
+	var carpet_tex: Texture2D = TextureLoader.load_tex(
+		"res://assets/textures/casino_carpet.jpg", "res://assets/texture_data/casino_carpet.tres")
+	var carpet_mat := StandardMaterial3D.new()
+	carpet_mat.albedo_color = Color(1.3, 1.22, 1.4)
+	carpet_mat.roughness = 0.96
+	if carpet_tex != null:
+		carpet_mat.albedo_texture = carpet_tex
+		carpet_mat.uv1_triplanar = true
+		carpet_mat.uv1_scale = Vector3(0.16, 0.16, 0.16)
+	var pit_mat := _mat(Color(0.17, 0.09, 0.25), 0.0, 0.95)
+	# local -> world helper (interior local origin = C, x east, z south)
+	var L := func(lx: float, ly: float, lz: float) -> Vector3:
+		return C + Vector3(lx, ly, lz)
+	# --- street facade: gold glass + pink neon, plaza south row ---
+	# The plot behind this frontage is a kit tower whose own shopfront
+	# modules reach z~33.8, so the casino front is built as a portico
+	# standing ~2 m proud of that face (cheeks + canopy close the gap).
+	var panel := Node3D.new()
+	panel.position = Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y - 2.1)
+	panel.rotation.y = atan2(CASINO_FACE.x, CASINO_FACE.y)
+	add_child(panel)
+	var gold_glass := _mat(Color(0.72, 0.55, 0.20), 0.55, 0.4)
+	gold_glass.metallic = 0.4
+	gold_glass.metallic_specular = 0.5
+	_box(panel, Vector3(24.0, 9.0, 0.6), Vector3(0, 4.5, 0), gold_glass, true)
+	_box(panel, Vector3(0.5, 9.0, 2.4), Vector3(-11.9, 4.5, -1.2), gold_glass, true)
+	_box(panel, Vector3(0.5, 9.0, 2.4), Vector3(11.9, 4.5, -1.2), gold_glass, true)
+	_box(panel, Vector3(24.4, 0.5, 2.6), Vector3(0, 9.2, -1.1), gold_mat)
+	_box(panel, Vector3(24.4, 0.7, 0.7), Vector3(0, 9.2, 0), gold_mat)
+	_box(panel, Vector3(24.4, 0.5, 0.7), Vector3(0, 0.25, 0), gold_mat)
+	for sx in [-9.6, -4.8, 4.8, 9.6]:
+		_box(panel, Vector3(0.35, 8.6, 0.68), Vector3(sx, 4.5, 0), pink_glow)
+	# entrance recess + glow door (the actual door is the teleport)
+	_box(panel, Vector3(4.2, 3.6, 0.75), Vector3(0, 1.8, 0), dark_mat)
+	_box(panel, Vector3(3.4, 3.0, 0.8), Vector3(0, 1.5, 0), _mat(Color(0.45, 0.35, 0.55), 0.5, 0.3))
+	_box(panel, Vector3(5.2, 0.35, 0.85), Vector3(0, 3.55, 0), cyan_glow)
+	var fsign := _label3d("CASINO NEON PEARL", Vector3(0, 7.6, 0.55), 210, Color(1.0, 0.45, 0.75), panel)
+	fsign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var fsub := _label3d("POKER  •  ROULETTE  •  BLACKJACK", Vector3(0, 6.2, 0.55), 74, Color(0.55, 0.95, 1.0), panel)
+	fsub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# red carpet from the door into the plaza + bollard lights
+	_box(self, Vector3(3.6, 0.06, 6.0), Vector3(CASINO_DOOR.x, gy + 0.03, CASINO_DOOR.y - 4.6), _mat(Color(0.42, 0.05, 0.22), 0.15, 0.9))
+	for bx in [-2.3, 2.3]:
+		for bz in [-2.5, -5.5]:
+			_box(self, Vector3(0.16, 0.7, 0.16), Vector3(CASINO_DOOR.x + bx, gy + 0.35, CASINO_DOOR.y + bz), gold_mat)
+			_box(self, Vector3(0.22, 0.12, 0.22), Vector3(CASINO_DOOR.x + bx, gy + 0.74, CASINO_DOOR.y + bz), lamp_mat)
+	# --- interior shell: floor / ceiling / walls (88 x 58, h 8) ---
+	_box(self, Vector3(88.0, 0.3, 58.0), L.call(0, -0.15, 0), carpet_mat, true)
+	_box(self, Vector3(64.0, 0.06, 30.0), L.call(-4, 0.03, 0), pit_mat)  # pit inlay
+	_box(self, Vector3(88.0, 0.3, 58.0), L.call(0, 8.15, 0), ceil_mat, true)
+	_box(self, Vector3(88.0, 8.0, 0.4), L.call(0, 4.0, -29.0), wall_mat, true)
+	_box(self, Vector3(88.0, 8.0, 0.4), L.call(0, 4.0, 29.0), wall_mat, true)
+	_box(self, Vector3(0.4, 8.0, 58.0), L.call(-44.0, 4.0, 0), wall_mat, true)
+	_box(self, Vector3(0.4, 8.0, 58.0), L.call(44.0, 4.0, 0), wall_mat, true)
+	# gold trim line + pink vertical light strips on the long walls
+	for wz in [-28.75, 28.75]:
+		_box(self, Vector3(87.6, 0.22, 0.1), L.call(0, 3.1, wz), gold_mat)
+		_box(self, Vector3(87.6, 0.18, 0.1), L.call(0, 6.4, wz), pink_glow)
+		for wx in range(-40, 41, 8):
+			_box(self, Vector3(0.3, 5.6, 0.1), L.call(float(wx), 3.4, wz), _mat(Color(0.9, 0.3, 0.6), 0.9, 0.5))
+	for wx2 in [-43.75, 43.75]:
+		_box(self, Vector3(0.1, 0.22, 57.6), L.call(wx2, 3.1, 0), gold_mat)
+	# ceiling light panels + cornice glow
+	for cx in range(-36, 37, 12):
+		for cz in [-18.0, 0.0, 18.0]:
+			_box(self, Vector3(4.2, 0.08, 1.6), L.call(float(cx), 7.96, cz), lamp_mat)
+	_box(self, Vector3(87.0, 0.15, 0.15), L.call(0, 7.4, -28.6), gold_mat)
+	_box(self, Vector3(87.0, 0.15, 0.15), L.call(0, 7.4, 28.6), gold_mat)
+	# gold columns x6
+	for cp in [[-36.0, -2.0], [-36.0, 20.0], [20.0, 16.0], [33.0, 2.0], [18.0, -20.0], [-2.0, -20.0]]:
+		var col := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.55
+		cm.bottom_radius = 0.55
+		cm.height = 8.0
+		col.mesh = cm
+		col.material_override = gold_mat
+		col.position = L.call(cp[0], 4.0, cp[1])
+		add_child(col)
+		_box(self, Vector3(1.5, 0.35, 1.5), L.call(cp[0], 7.8, cp[1]), gold_mat)
+		_box(self, Vector3(1.5, 0.3, 1.5), L.call(cp[0], 0.15, cp[1]), gold_mat, true)
+	# interior lighting: a few warm omnis (plan §8: keep them few)
+	for lp in [[0.0, 22.0], [0.0, -1.0], [-20.0, 0.0], [10.0, -24.0], [33.0, -20.0], [-25.0, -21.0], [-34.0, 16.0], [34.0, 16.0]]:
+		var omni := OmniLight3D.new()
+		omni.position = L.call(lp[0], 6.4, lp[1])
+		omni.light_color = Color(1.0, 0.85, 0.66)
+		omni.light_energy = 2.4
+		omni.omni_range = 21.0
+		omni.shadow_enabled = false
+		add_child(omni)
+	# signs inside
+	var isign := _label3d("CASINO NEON PEARL", L.call(0, 5.6, 28.55), 150, Color(1.0, 0.5, 0.78), self)
+	isign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	isign.rotation.y = PI
+	var sign21 := _label3d("21+", L.call(0, 3.4, 26.5), 120, Color(1.0, 0.35, 0.6), self)
+	sign21.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sign21.rotation.y = PI
+
+	# --- furniture / NPC helpers (casino-local) ---
+	var place := func(path: String, lx: float, lz: float, rot_y: float = 0.0, scl: float = 1.0, ly: float = 0.0) -> Node3D:
+		var inst: Node3D = ModelLoader.load_model(path)
+		if inst == null:
+			return null
+		inst.position = L.call(lx, ly, lz)
+		inst.rotation.y = rot_y
+		if not is_equal_approx(scl, 1.0):
+			inst.scale = Vector3.ONE * scl
+		add_child(inst)
+		return inst
+	var collide := func(lx: float, lz: float, size: Vector3) -> void:
+		var body := StaticBody3D.new()
+		var cs := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = size
+		cs.shape = shape
+		body.add_child(cs)
+		body.position = L.call(lx, size.y * 0.5, lz)
+		add_child(body)
+	var npc := func(cast: String, lx: float, lz: float, rot_y: float) -> Node3D:
+		var inst: Node3D = People.spawn(cast)
+		if inst == null:
+			return null
+		inst.position = L.call(lx, 0.0, lz)
+		inst.rotation.y = rot_y
+		add_child(inst)
+		People.play(People.find_ap(inst), "Idle")
+		return inst
+	# --- entrance: detector gates + guards + info desk ---
+	place.call("res://assets/models/casino_gate.glb", -2.2, 23.5)
+	place.call("res://assets/models/casino_gate.glb", 2.2, 23.5)
+	npc.call("SciFi", -4.2, 21.8, 0.0)
+	npc.call("SciFi", 4.2, 21.8, 0.0)
+	_box(self, Vector3(5.0, 1.05, 0.9), L.call(-13, 0.52, 24.8), _mat(Color(0.16, 0.10, 0.22), 0.0, 0.6), true)
+	_box(self, Vector3(5.2, 0.08, 1.0), L.call(-13, 1.08, 24.8), gold_mat)
+	var il := _label3d("INFORMATION", L.call(-13, 2.2, 24.2), 64, Color(0.6, 0.95, 1.0), self)
+	il.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	il.rotation.y = PI
+	npc.call("AnimatedWoman", -13, 26.1, PI)
+	# --- main cashier cage (south-east) + NEON CIRCLE counter (west) ---
+	place.call("res://assets/models/casino_cage.glb", 24, 27.3, PI)
+	collide.call(24, 27.6, Vector3(8.2, 3.0, 1.6))
+	var cl := _label3d("CASHIER", L.call(24, 3.6, 26.6), 84, Color(1.0, 0.85, 0.4), self)
+	cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cl.rotation.y = PI
+	npc.call("Suit", 22, 28.35, PI)
+	npc.call("Casual", 26, 28.35, PI)
+	_box(self, Vector3(0.9, 1.05, 5.0), L.call(-42.6, 0.52, 8), _mat(Color(0.16, 0.10, 0.22), 0.0, 0.6), true)
+	_box(self, Vector3(0.1, 1.5, 3.4), L.call(-43.6, 2.2, 8), cyan_glow)
+	var nl := _label3d("NEON CIRCLE", L.call(-42.4, 2.3, 8), 60, Color(0.6, 0.95, 1.0), self)
+	nl.rotation.y = -PI * 0.5
+	# --- chandeliers (casino_ui rotates them slowly) ---
+	var chandeliers: Array = []
+	var ch0: Node3D = place.call("res://assets/models/casino_chandelier.glb", 0, 0, 0.0, 1.0, 8.0)
+	if ch0 != null:
+		chandeliers.append(ch0)
+	for chp in [[-20.0, -1.0], [14.0, -1.0]]:
+		var chx: Node3D = place.call("res://assets/models/casino_chandelier.glb", chp[0], chp[1], 0.0, 0.55, 8.0)
+		if chx != null:
+			chandeliers.append(chx)
+	# --- tables ---
+	var tables: Array = []
+	var add_table := func(kind: String, tname: String, lx: float, lz: float, min_bet: int, vip: bool) -> Dictionary:
+		var seat_l := Vector3(lx, 0, lz + (1.5 if kind == "poker" else 1.32))
+		var t: Dictionary = {"kind": kind, "name": tname, "min_bet": min_bet, "vip": vip,
+			"table_pos": L.call(lx, 0, lz), "seat_pos": L.call(seat_l.x, 0, seat_l.z), "seat_yaw": 0.0}
+		tables.append(t)
+		return t
+	var bj_path := "res://assets/models/casino_bj_table.glb"
+	var rt_path := "res://assets/models/casino_roulette_table.glb"
+	var wheel_path := "res://assets/models/casino_roulette_wheel.glb"
+	var stool_path := "res://assets/models/casino_stool.glb"
+	var dealer_casts: Array = ["Suit", "WomanCasual"]
+	var di: int = 0
+	for bp in [[-26.0, -7.0], [-14.0, -7.0], [14.0, -7.0], [-26.0, 6.0], [-14.0, 6.0], [14.0, 6.0]]:
+		place.call(bj_path, bp[0], bp[1])
+		collide.call(bp[0], bp[1], Vector3(2.5, 1.0, 1.4))
+		add_table.call("bj", "ブラックジャック", bp[0], bp[1], 25, false)
+		npc.call(dealer_casts[di % 2], bp[0], bp[1] - 1.05, 0.0)
+		di += 1
+		for sx in [-0.75, 0.0, 0.75]:
+			place.call(stool_path, bp[0] + sx, bp[1] + 1.32)
+		place.call("res://assets/models/casino_shoe.glb", bp[0] + 0.85, bp[1] - 0.25)
+	var roulette_wheels: Array = []
+	for rp in [[0.0, -8.0], [0.0, 5.0]]:
+		place.call(rt_path, rp[0], rp[1])
+		collide.call(rp[0], rp[1], Vector3(3.1, 1.0, 1.7))
+		var t2: Dictionary = add_table.call("roulette", "ルーレット", rp[0], rp[1], 25, false)
+		var wheel: Node3D = place.call(wheel_path, rp[0] - 0.95, rp[1], 0.0, 1.0, 0.85)
+		if wheel != null:
+			var winfo: Dictionary = {"pivot": wheel, "center": L.call(rp[0] - 0.95, 1.02, rp[1])}
+			roulette_wheels.append(winfo)
+			t2["wheel"] = winfo
+		npc.call(dealer_casts[di % 2], rp[0] + 0.3, rp[1] - 1.15, 0.0)
+		di += 1
+		for sx in [-0.5, 0.5]:
+			place.call(stool_path, rp[0] + sx, rp[1] + 1.32)
+	# pit boss podium between the roulette tables
+	place.call("res://assets/models/casino_pitboss.glb", 0, -1.5)
+	collide.call(0, -1.5, Vector3(1.5, 1.3, 0.8))
+	npc.call("Suit", 0, -2.3, 0.0)
+	# --- poker room (glass partition, NW) ---
+	_box(self, Vector3(26.0, 3.2, 0.15), L.call(-31, 1.6, -13), glass_mat, true)
+	_box(self, Vector3(9.0, 3.2, 0.15), L.call(-10.5, 1.6, -13), glass_mat, true)
+	_box(self, Vector3(3.0, 0.5, 0.18), L.call(-16.5, 3.45, -13), gold_mat)
+	_box(self, Vector3(0.18, 3.2, 16.0), L.call(-6, 1.6, -21), glass_mat, true)
+	var pl := _label3d("POKER ROOM", L.call(-16.5, 3.9, -12.6), 72, Color(0.6, 0.95, 1.0), self)
+	pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	place.call("res://assets/models/casino_poker_table.glb", -28, -21)
+	collide.call(-28, -21, Vector3(2.7, 1.0, 1.3))
+	add_table.call("poker", "ポーカー", -28, -21, 25, false)
+	npc.call("Suit", -28, -22.4, 0.0)
+	for sa in [[-29.2, -19.5], [-26.8, -19.5], [-29.9, -21.0], [-26.1, -21.0], [-29.2, -22.6], [-26.8, -22.6]]:
+		place.call(stool_path, sa[0], sa[1])
+	place.call("res://assets/models/casino_poker_table.glb", -13, -21)
+	collide.call(-13, -21, Vector3(2.7, 1.0, 1.3))
+	npc.call("WomanCasual", -13, -22.4, 0.0)
+	# --- VIP salon (NE): partitions, guard, high-limit tables, cage ---
+	_box(self, Vector3(0.15, 4.0, 12.0), L.call(22, 2.0, -23), wall2_mat, true)
+	_box(self, Vector3(0.15, 4.0, 3.5), L.call(22, 2.0, -12.75), wall2_mat, true)
+	_box(self, Vector3(0.15, 1.0, 2.5), L.call(22, 3.5, -15.75), gold_mat)
+	_box(self, Vector3(22.0, 4.0, 0.15), L.call(33, 2.0, -11), wall2_mat, true)
+	_box(self, Vector3(0.2, 0.2, 12.0), L.call(22, 4.05, -23), gold_mat)
+	_box(self, Vector3(22.0, 0.2, 0.2), L.call(33, 4.05, -11), gold_mat)
+	var vl := _label3d("VIP SALON", L.call(21.6, 3.2, -15.75), 68, Color(1.0, 0.85, 0.4), self)
+	vl.rotation.y = -PI * 0.5
+	npc.call("SciFi", 20.7, -15.7, -PI * 0.5)
+	place.call(bj_path, 30, -22)
+	collide.call(30, -22, Vector3(2.5, 1.0, 1.4))
+	add_table.call("bj", "VIP ブラックジャック", 30, -22, 500, true)
+	npc.call("Suit", 30, -23.05, 0.0)
+	for sx in [-0.75, 0.0, 0.75]:
+		place.call(stool_path, 30 + sx, -20.68)
+	place.call(rt_path, 37, -16)
+	collide.call(37, -16, Vector3(3.1, 1.0, 1.7))
+	var tv: Dictionary = add_table.call("roulette", "VIP ルーレット", 37, -16, 500, true)
+	var wheel_v: Node3D = place.call(wheel_path, 36.05, -16, 0.0, 1.0, 0.85)
+	if wheel_v != null:
+		var wv: Dictionary = {"pivot": wheel_v, "center": L.call(36.05, 1.02, -16)}
+		roulette_wheels.append(wv)
+		tv["wheel"] = wv
+	npc.call("WomanCasual", 37.3, -17.15, 0.0)
+	place.call(stool_path, 36.5, -14.68)
+	place.call(stool_path, 37.5, -14.68)
+	place.call("res://assets/models/casino_cage.glb", 42.8, -27.5, -PI * 0.5, 0.55)
+	place.call("res://assets/models/casino_sofa.glb", 26, -27.2, 0.0)
+	place.call("res://assets/models/casino_sofa.glb", 33.5, -27.6, PI * 0.5)
+	# --- bar (north wall, between poker room and VIP) ---
+	place.call("res://assets/models/casino_bar.glb", 11, -26.4)
+	collide.call(11, -26.6, Vector3(6.4, 1.2, 2.2))
+	npc.call("Worker", 11, -27.9, 0.0)
+	var bl2 := _label3d("BAR", L.call(11, 3.4, -25.2), 76, Color(1.0, 0.7, 0.4), self)
+	bl2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var buys: Array = []
+	var bar_items: Array = [
+		{"id": "drink", "label": "栄養ドリンク", "price": 30, "heal": 25.0, "lx": 8.5},
+		{"id": "coffee", "label": "コーヒー", "price": 20, "heal": 10.0, "lx": 13.5},
+	]
+	for bit in bar_items:
+		var bp2: Vector3 = L.call(float(bit["lx"]), 0, -25.3)
+		_box(self, Vector3(0.5, 0.95, 0.5), bp2 + Vector3(0, 0.47, 0), _mat(Color(0.16, 0.10, 0.22), 0.0, 0.6), true)
+		_box(self, Vector3(0.32, 0.32, 0.32), bp2 + Vector3(0, 1.15, 0), _mat(ITEM_COLORS[String(bit["id"])], 0.9, 0.4))
+		var bl3 := _label3d("%s €$%d" % [String(bit["label"]), int(bit["price"])], bp2 + Vector3(0, 1.7, 0), 44, Color(1, 1, 1), self)
+		bl3.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var bd2: Dictionary = {"id": bit["id"], "label": bit["label"], "price": bit["price"], "heal": bit["heal"], "pos": bp2}
+		buys.append(bd2)
+	for sx in [7.6, 10.1, 13.9, 16.4]:
+		place.call(stool_path, sx, -24.9)
+	# --- slot machines: east wall x6 + island x4 (first wall unit playable) ---
+	var slot_path := "res://assets/models/casino_slot.glb"
+	var slot_spots: Array = []
+	for sz in [-2.0, 2.5, 7.0, 11.5, 16.0, 20.5]:
+		place.call(slot_path, 42.8, sz, -PI * 0.5)
+		collide.call(42.8, sz, Vector3(0.8, 1.8, 0.9))
+		place.call(stool_path, 41.9, sz)
+		slot_spots.append(L.call(41.6, 0, sz))
+	for isp in [[36.0, 6.0, PI * 0.5], [36.0, 10.5, -PI * 0.5], [36.0, 15.0, PI * 0.5], [36.0, 19.5, -PI * 0.5]]:
+		place.call(slot_path, isp[0], isp[1], isp[2])
+		collide.call(isp[0], isp[1], Vector3(0.9, 1.8, 0.8))
+		place.call(stool_path, isp[0] + (0.9 if isp[2] > 0.0 else -0.9), isp[1])
+	# --- guests + patrols ---
+	npc.call("Casual", 41.9, 2.5, -PI * 0.5)
+	npc.call("SciFi", 41.9, 11.5, -PI * 0.5)
+	npc.call("AnimatedWoman", 35.1, 6.0, PI * 0.5)
+	npc.call("CasualCharacter", 36.9, 19.5, -PI * 0.5)
+	npc.call("Suit", -15.1, -5.6, PI)
+	npc.call("WomanCasual", 1.7, -6.3, PI)
+	npc.call("Casual", 9.0, -25.0, PI)
+	npc.call("SciFi", -13, -19.3, PI)
+	npc.call("Casual", -11.4, -21, PI * 0.5)
+	npc.call("AnimatedWoman", -14.6, -22.7, 0.0)
+	var guard_patrol: Node3D = npc.call("SciFi", -38, 20, 0.0)
+	var server: Node3D = npc.call("WomanCasual", -20, 12, 0.0)
+	var patrol_defs: Array = []
+	if guard_patrol != null:
+		patrol_defs.append({"node": guard_patrol, "speed": 1.6, "points": [
+			L.call(-38, 0, 20), L.call(38, 0, 20), L.call(38, 0, -9), L.call(-38, 0, -9)]})
+	if server != null:
+		patrol_defs.append({"node": server, "speed": 1.3, "points": [
+			L.call(-20, 0, 12), L.call(8, 0, 12), L.call(8, 0, -12), L.call(-20, 0, -12)]})
+	# --- register the site ---
+	shop_sites.append({
+		"name": "カジノ NEON PEARL", "kind": "casino",
+		"door_pos": Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y - 3.6),
+		"street_pos": Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y),
+		"enter_pos": L.call(0, 0.35, 24.5),
+		"exit_pos": L.call(0, 0, 26.8),
+		"counter_pos": L.call(24, 0, 26.2),
+		"cam_dist": 3.4,
+		"buys": buys,
+		"casino": {
+			"center": C,
+			"cage_pos": [L.call(20.5, 0, 26.2), L.call(24, 0, 26.2), L.call(27.5, 0, 26.2)],
+			"vip_cage_pos": L.call(41.3, 0, -27.5),
+			"info_pos": L.call(-13, 0, 23.4),
+			"circle_pos": L.call(-41.3, 0, 8),
+			"tables": tables,
+			"roulette_wheels": roulette_wheels,
+			"slot_pos": slot_spots[0],
+			"vip_rect": Rect2(22.0, -29.0, 22.0, 18.0),
+			"vip_door_out": L.call(20.4, 0, -15.7),
+			"patrols": patrol_defs,
+			"chandeliers": chandeliers,
+		},
+	})

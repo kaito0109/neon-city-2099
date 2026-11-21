@@ -839,3 +839,62 @@ normal maps, almost no facade relief, no backdrop skyline.
   closeups (v59h), probe counts, v45 PASS, v57 PASS (traffic
   120 s). v56 not re-run (terrain height fn untouched; its
   samples file was lost in a VM restart).
+
+## v6.0 — CASINO NEON PEARL (2026-11-21, his ask: Okada Manila-style casino, real games)
+Plan: design/casino_plan.md (Phases 1-3 built; Phase 4 balance pass
+and Phase 5 publish are separate). The casino is a 7th shop_sites
+entry (kind "casino") on the plaza south row, door at (28, 35.5);
+the interior floor (88 x 58 m) floats at y=-60 under the plaza.
+- Facade: the plot behind the frontage is a kit tower whose own
+  shopfront modules reach z~33.8, so the gold front is built as a
+  portico ~2 m proud of that face (cheeks + canopy close the gap);
+  pink neon strips, CASINO NEON PEARL sign, red carpet, bollards.
+- Interior: entrance + 2 detector gates + guards, information desk,
+  main cashier cage (Blender cage model), BJ x6 + roulette x2 pit
+  with pit-boss podium, glass poker room (1 playable + 1 decorative
+  table), VIP salon behind partitions (VIP BJ + VIP roulette,
+  min 500, own scaled cage, sofas) gated by NEON CIRCLE rank,
+  bar counter (drinks/coffee), 10 slots (first wall unit playable,
+  simple 3-reel), NEON CIRCLE loyalty counter. ~31 NPCs (dealers,
+  cashiers, guards on a rectangle patrol, pit patrol, guests);
+  everyone stands (no sit clip in the model set — plan-sanctioned
+  fallback). Interior light: 8 warm omnis, no shadows.
+- Models: 14 Blender GLBs (wheel with the real European order,
+  tables with printed layouts, cage, chandelier, gate, slot, bar,
+  pit-boss desk, shoe set, stool, sofa, chip) + 7 PIL-printed
+  textures, all shipped as ModelBlob .tres (largest: wheel 705 KB).
+  The wheel blob briefly carried a pre-fix GLB whose solid rim cap
+  hid the pockets; root-caused by GLB byte comparison and fixed by
+  regenerating the blob from the corrected GLB.
+- Games (casino/, pure-logic classes + casino_ui.gd on CpUi):
+  blackjack 6-deck S17, BJ 3:2, US peek, insurance, double, split
+  to 4 hands (split aces one card, 21 not BJ); European roulette
+  with the real wheel order, every bet type (straight/split/
+  street/corner/six-line/dozen/column/even-money) placed on a
+  clickable layout grid, wheel spin animation whose ball rest
+  angle is calibrated against the model (probe shots: idx 0 rests
+  in green 0, idx 1 in red 32); Texas hold'em 6-max vs 5 CPUs,
+  7-card evaluation with full kicker compare, side pots via
+  compute_pots, min-raise tracking, 3 CPU personalities.
+  Economy: chips are separate from €$ (1:1 at the cage, presets
+  100-10000 + all-in cash-out), table minimums 25 / VIP 500,
+  poker buy-in 2500 (SB 25 / BB 50), no debt. NEON CIRCLE points
+  = lifetime wagered / 100; GOLD (>=10000 pt) opens the VIP salon.
+- Verified: casino_logic_test 113 PASS / 0 FAIL (payouts, hand
+  evaluation, side pots, chip conservation over 200 simulated
+  hands); casino_test integration 24 checks PASS (cage buy/sell,
+  BJ settle chip math, roulette spin consistency, poker
+  buy-in/leave, VIP gate) — one timing flake in the BJ reveal
+  wait observed once under parallel load, then 2 clean runs;
+  casino_probe PASS; blob-route run (casino .glb/.jpg removed)
+  PASS, so the public build loads everything from .tres;
+  existing suites v54 / v45 / v57 PASS (v54 shop-count assertion
+  updated 6 -> 7 for the casino site). Xvfb photo PDCA: facade,
+  overview, entrance, cage, pit, roulette, poker room, VIP,
+  slots + cage/BJ/roulette/poker UI panels (13 shots in shots/).
+  Draw calls at the interior overview viewpoint: 3,776 (llvmpipe).
+  Staging Web export: 0 errors, pck contains all 28 casino
+  model_data entries + the 4 casino scripts.
+- NOT verified: iPhone fps inside the casino (8 omnis + ~31 NPCs
+  + moon shadows outside), touch play of the three game panels,
+  his verdict. Not pushed (awaits his "Pushして").

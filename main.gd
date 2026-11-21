@@ -7,6 +7,7 @@ const CarScript := preload("res://car.gd")
 const NpcScript := preload("res://npc.gd")
 const DroneScript := preload("res://drone.gd")
 const HudScript := preload("res://hud.gd")
+const CasinoUiScript := preload("res://casino/casino_ui.gd")
 
 var city: Node3D
 var player: CharacterBody3D
@@ -37,6 +38,11 @@ var in_shop: int = -1              # index into city.shop_sites; -1 = on the str
 var items: Dictionary = {}         # consumable id -> count
 var item_defs: Dictionary = {}     # consumable id -> {label, price, heal}
 var _shop_target: int = -1         # shop index used by courier / errand
+# Casino (v6.0): chips are a separate balance from cash; NEON CIRCLE
+# points derive from the lifetime total bet (100 bet = 1 pt).
+var chips: int = 0
+var casino_stats: Dictionary = {"total_bet": 0, "total_returned": 0}
+var casino_ui: CanvasLayer = null
 var mission_stage: String = ""     # pickup: go|deliver ; race uses gate idx
 var mission_target_pos: Variant = null
 var _race_gates: Array[Vector3] = []
@@ -75,6 +81,9 @@ func _ready() -> void:
 		"res://assets/fonts/Rajdhani-Bold.ttf",
 		"res://assets/font_data/rajdhani_bold.tres")
 	hud.call("build", game_font, latin_font)
+	casino_ui = CasinoUiScript.new()
+	add_child(casino_ui)
+	casino_ui.call("setup", self, game_font)
 	hud.call("show_panel", "NEON CITY 2099",
 		"2099年、ネオンの街ネオ・キバラ。運び屋として街を駆け、仕事をこなしてエディ（€$）を稼げ。\n\n移動: WASD / 左スティック　視点: マウス / 右ドラッグ\nダッシュ: Shift　ジャンプ: Space　調べる・乗る: F / ACT\n車の運転: 乗って W/S・A/D　全体マップ: M\n飛行: 車で R / FLYボタン切替、GAS/BRK（W/S）で前後、左スティック上下（Space/Shift）で昇降\nパルクール: 空中で壁に向かってジャンプで壁登り、空中でもう一度ジャンプで二段ジャンプ\n\nJOBキオスクで仕事を受けよう。ハッキングと事故は警察ドローンを呼ぶ。\n\n3Dモデル: SKY T 021 by AL3K / Apartment by Jungle Jim / Milk&Peach by Malilynn / Hotel by IQINSO / Tower by Ayman.Ibrahim / Hovercar by Lionsharp Studios (CC BY-SA) / Sci-fi car by Boberemn / Flying car by Mitya Petrov / Vending by samborn & thekillinggmoon / 主人公 Cyberpunk character by 4d_Bob（いずれも CC BY、Sketchfab）",
 		"スタート")
@@ -456,8 +465,11 @@ func _enter_shop(i: int) -> void:
 	player.global_position = s["enter_pos"]
 	if player is CharacterBody3D:
 		(player as CharacterBody3D).velocity = Vector3.ZERO
-	player.call("set_camera_dist", 1.7)
-	hud.call("toast", "%s — カウンターで買い物、出口で出る" % String(s["name"]))
+	player.call("set_camera_dist", float(s.get("cam_dist", 1.7)))
+	if String(s["kind"]) == "casino":
+		hud.call("toast", "CASINO NEON PEARL — まずキャッシャーでチップを買おう")
+	else:
+		hud.call("toast", "%s — カウンターで買い物、出口で出る" % String(s["name"]))
 
 func _exit_shop() -> void:
 	var s: Dictionary = (city.get("shop_sites") as Array)[in_shop]
@@ -469,6 +481,10 @@ func _exit_shop() -> void:
 
 func _shop_interact() -> void:
 	var s: Dictionary = (city.get("shop_sites") as Array)[in_shop]
+	if String(s["kind"]) == "casino":
+		if casino_ui != null:
+			casino_ui.call("handle_interact")
+		return
 	var p: Vector3 = player.global_position
 	if p.distance_to(s["exit_pos"]) < 2.4:
 		_exit_shop()
@@ -618,6 +634,8 @@ func add_wanted(n: int) -> void:
 		_escape_t = 0.0
 
 func _die() -> void:
+	if casino_ui != null:
+		casino_ui.call("force_leave")
 	in_shop = -1
 	player.call("set_camera_dist", 4.6)
 	var fee: int = mini(50, money)
@@ -664,6 +682,10 @@ func _process(delta: float) -> void:
 	_update_mission(delta)
 	_update_wanted(delta)
 	_update_prompts()
+	if casino_ui != null and in_shop >= 0:
+		var cs: Dictionary = (city.get("shop_sites") as Array)[in_shop]
+		if String(cs["kind"]) == "casino":
+			casino_ui.call("tick", delta)
 	# Marker pulse.
 	if mission_target_pos != null:
 		_marker.visible = true
@@ -821,7 +843,9 @@ func _update_prompts() -> void:
 		var p: Vector3 = player.global_position
 		if in_shop >= 0:
 			var s2: Dictionary = (city.get("shop_sites") as Array)[in_shop]
-			if p.distance_to(s2["exit_pos"]) < 2.4:
+			if String(s2["kind"]) == "casino":
+				text = String(casino_ui.call("hint_text")) if casino_ui != null else ""
+			elif p.distance_to(s2["exit_pos"]) < 2.4:
 				text = "F / ACT: 店を出る"
 			else:
 				for b in s2["buys"]:

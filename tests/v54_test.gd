@@ -34,7 +34,7 @@ func _process(_delta: float) -> bool:
 		stage_t = 0
 	elif stage == 1 and stage_t > 30:
 		var sites: Array = _sites()
-		_ok(sites.size() == 6, "6 shops built")
+		_ok(sites.size() == 7, "6 shops + casino built")
 		for i in range(sites.size()):
 			if String(sites[i]["kind"]) == "pharmacy":
 				pharm = i
