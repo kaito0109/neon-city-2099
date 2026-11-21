@@ -67,7 +67,7 @@ jobs:
         run: |
           mkdir -p assets/models
           for f in assets/models_b64/*.b64; do
-            base64 -d "$f" > "assets/models/$(basename "${f%.b64}")"
+            base64 -d < "$f" > "assets/models/$(basename "${f%.b64}")"
           done
           ls -lh assets/models/
 
