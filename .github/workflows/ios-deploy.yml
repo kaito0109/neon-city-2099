@@ -1,0 +1,127 @@
+name: Build iOS app (unsigned .ipa for AltStore)
+
+# NEON CITY 2099 — iOS native build for sideloading with AltStore Classic.
+#
+# How to use:
+#   1. Copy this file's contents into the repo as .github/workflows/ios-deploy.yml
+#      (GitHub web UI: Add file > Create new file). The connector used by the
+#      assistant cannot push .github/workflows/* files, so this step is manual.
+#   2. Run it from the Actions tab ("Build iOS app (unsigned .ipa for AltStore)"
+#      > Run workflow). It is manual-only on purpose: macOS runners cost
+#      10x minutes, so it does not run on every push. To make it automatic,
+#      uncomment the "push" trigger below.
+#   3. When the run finishes, download the "NeonCity2099-ipa" artifact,
+#      unzip it, and install NeonCity2099.ipa with AltStore Classic.
+#      AltStore re-signs the app with your free developer certificate,
+#      which is why this workflow builds WITHOUT code signing and why the
+#      Godot preset uses the dummy Team ID "ABCDE12345".
+
+on:
+  # push:
+  #   branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    env:
+      GODOT_VERSION: "4.6.3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Download Godot (macOS)
+        run: |
+          curl -sL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q godot.zip
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+          "$PWD/Godot.app/Contents/MacOS/Godot" --version
+
+      - name: Install export templates (iOS)
+        run: |
+          curl -sL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          TPL_DIR="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$TPL_DIR"
+          unzip -q templates.tpz 'templates/ios.zip' 'templates/version.txt' -d /tmp/tpz
+          cp /tmp/tpz/templates/* "$TPL_DIR/"
+          ls -lh "$TPL_DIR"
+
+      - name: Download character model (CesiumMan, CC-BY)
+        run: |
+          mkdir -p assets
+          curl -L -o assets/player.glb "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/CesiumMan/glTF-Binary/CesiumMan.glb"
+          ls -lh assets/
+
+      - name: Download Japanese font (M PLUS 1p)
+        run: |
+          curl -L -o assets/jpfont.ttf "https://raw.githubusercontent.com/google/fonts/main/ofl/mplus1p/MPLUS1p-Regular.ttf"
+          ls -lh assets/
+
+      - name: Decode Blender models (stored as base64 text in repo)
+        run: |
+          mkdir -p assets/models
+          for f in assets/models_b64/*.b64; do
+            base64 -d "$f" > "assets/models/$(basename "${f%.b64}")"
+          done
+          ls -lh assets/models/
+
+      # Godot refuses to export for iOS unless ETC2/ASTC texture import is
+      # enabled in the project (the check fails with an EMPTY error message:
+      # EditorExportPlatformAppleEmbedded::has_valid_project_configuration).
+      # The repo's project.godot intentionally keeps this off (the Web build
+      # does not need it), so enable it only in this CI checkout.
+      - name: Enable ETC2/ASTC texture import (CI checkout only)
+        run: |
+          python3 - <<'PYEOF'
+          path = "project.godot"
+          text = open(path).read()
+          if "import_etc2_astc" not in text:
+              text = text.replace("[rendering]\n", "[rendering]\n\ntextures/vram_compression/import_etc2_astc=true\n", 1)
+              open(path, "w").write(text)
+          print("import_etc2_astc enabled:", "import_etc2_astc=true" in open(path).read())
+          PYEOF
+
+      - name: Import project
+        run: |
+          "$GODOT" --headless --path . --import --quit
+
+      - name: Export Xcode project (iOS preset)
+        run: |
+          mkdir -p build/ios
+          "$GODOT" --headless --path . --export-release "iOS" build/ios/NeonCity2099
+          ls -lh build/ios
+
+      - name: Build unsigned .app with xcodebuild
+        run: |
+          xcodebuild \
+            -project build/ios/NeonCity2099.xcodeproj \
+            -scheme NeonCity2099 \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          ls -lh build/DerivedData/Build/Products/Release-iphoneos/
+
+      - name: Package unsigned .ipa (Payload/)
+        run: |
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "build/DerivedData/Build/Products/Release-iphoneos/NeonCity2099.app" build/Payload/
+          cd build && zip -qry NeonCity2099.ipa Payload
+          ls -lh build/NeonCity2099.ipa
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeonCity2099-ipa
+          path: build/NeonCity2099.ipa
+          if-no-files-found: error
