@@ -1086,7 +1086,7 @@ and the Godot preset's Team ID is a dummy).
   The glass leaves are visual proximity doors; ACT still enters the casino
   interior through the established shop transition.
 - Static detail boxes are grouped by material in MultiMeshes (11 groups,
-  roughly 270 instances); individual collision shapes cover the structural
+  275 instances); individual collision shapes cover the structural
   masses and ground obstacles. Only two local lights are added, with no
   shadows and distance fading. The window shader and instancing target GL
   Compatibility; no SSR, volumetric fog or additional renderer features.
@@ -1102,3 +1102,12 @@ and the Godot preset's Team ID is a dummy).
   warnings and cached-model renderer cleanup warnings are outside this
   change. The rest of the city retains its existing generation; this pass
   concentrates environmental detail around the casino.
+
+### v6.4 deployment reliability follow-up
+
+The Web export succeeded, but Pages initially queried artifact metadata before
+it became visible (zero artifacts). Retrying the same job then left two
+artifacts with the default name, and Pages rejected the duplicate. The Web
+workflow now names artifacts by run attempt and polls the run's artifact API
+before deployment, with explicit read-only Actions permission. This preserves
+the existing export/build flow and avoids duplicate names on future retries.
