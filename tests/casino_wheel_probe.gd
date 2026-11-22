@@ -1,9 +1,6 @@
 extends SceneTree
-## Wheel calibration: top-down shots of roulette wheel A with the
-## ball placed by casino_ui's pocket-angle formula for pockets 0 and
-## 32. The ball must sit in the green 0 pocket, then in the red 32
-## pocket (adjacent in the real European order); that fixes the sign
-## of CasinoUI.POCKET_STEP and the value of POCKET_BASE.
+## Top-down calibration shots of adjacent green 0 and red 32 pockets.
+const WHEEL := preload("res://casino/roulette_wheel.gd")
 var frames: int = 0
 var main: Node
 var cam: Camera3D
@@ -11,7 +8,7 @@ var stage: int = 0
 var stage_t: int = 0
 var ball: MeshInstance3D
 var center: Vector3
-var cui: Node
+var pivot: Node3D
 
 func _initialize() -> void:
 	DisplayServer.window_set_size(Vector2i(900, 900))
@@ -21,8 +18,8 @@ func _initialize() -> void:
 	cam.far = 500.0
 	root.add_child(cam)
 	var sm := SphereMesh.new()
-	sm.radius = 0.03
-	sm.height = 0.06
+	sm.radius = WHEEL.BALL_RADIUS
+	sm.height = WHEEL.BALL_RADIUS * 2.0
 	ball = MeshInstance3D.new()
 	ball.mesh = sm
 	var bm := StandardMaterial3D.new()
@@ -32,25 +29,24 @@ func _initialize() -> void:
 	root.add_child(ball)
 
 func _place_ball(idx: int) -> void:
-	var base: float = cui.get("POCKET_BASE")
-	var step: float = cui.get("POCKET_STEP")
-	var ang: float = base + float(idx) * step
-	ball.global_position = center + Vector3(cos(ang), 0, sin(ang)) * 0.295
-	print("ball idx ", idx, " angle ", ang)
+	var ang := idx * WHEEL.STEP
+	ball.global_position = pivot.to_global(Vector3(cos(ang) * WHEEL.POCKET_RADIUS,
+		WHEEL.POCKET_HEIGHT + WHEEL.BALL_RADIUS, sin(ang) * WHEEL.POCKET_RADIUS))
 
 func _process(_delta: float) -> bool:
 	frames += 1
 	stage_t += 1
 	if frames == 20 and stage == 0:
 		main.call("start_game")
-		cui = main.get("casino_ui")
 		var cz: Dictionary = {}
 		for s in main.get("city").get("shop_sites"):
 			if String(s["kind"]) == "casino":
 				cz = s["casino"]
 		var wheels: Array = cz["roulette_wheels"]
 		var w0: Dictionary = wheels[0]
-		(w0["pivot"] as Node3D).rotation.y = 0.0
+		pivot = w0["pivot"]
+		pivot.rotation.y = 0.0
+		WHEEL.add_numbers(pivot)
 		center = w0["center"]
 		cam.make_current()
 		cam.global_position = center + Vector3(0, 1.7, 0.001)
@@ -64,8 +60,7 @@ func _process(_delta: float) -> bool:
 	elif stage == 2 and stage_t > 8:
 		root.get_texture().get_image().save_png("res://shots/casino_wheel_p0.png")
 		print("saved p0")
-		var order: Array = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
-		_place_ball(order.find(32))
+		_place_ball(1)
 		stage = 3
 		stage_t = 0
 	elif stage == 3 and stage_t > 8:
@@ -73,3 +68,4 @@ func _process(_delta: float) -> bool:
 		print("saved p32 — WHEEL_PROBE_DONE")
 		quit(0)
 	return false
+
