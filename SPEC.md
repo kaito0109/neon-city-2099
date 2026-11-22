@@ -1139,3 +1139,10 @@ the existing export/build flow and avoids duplicate names on future retries.
 - Godot 4.6.3 casino landmark and v54 shop/footbridge tests passed. This
   pilot covers the casino-adjacent shop frontage. Web and iPhone frame
   rates were not measured.
+
+### v6.6 — casino frontage continuity
+
+- Extend the storefront pass to Night Bites and the clinic. Blender
+  ModelBlobs add a warm service counter with a steel worktop and menu,
+  and a cooler clinic entrance with frosted panels and a canopy.
+  Existing collision, respawn and storefront interaction remain.

@@ -263,12 +263,18 @@ func _street_details() -> void:
 	_box("cyan", Vector3(2.1, 1.5, 0.07), Vector3(-15, 1.9, -5.27))
 	_sign("NEON PEARL\n24H • CASINO\n← ENTRY", Vector3(-15, 2, -5.32), 25, Color(0.8, 1, 1))
 	# Small night-food kiosk with an awning, counter, stools and crates.
-	_box("rust", Vector3(2.5, 1, 1.2), Vector3(-17, 0.5, -1), 0, true)
-	_box("dark", Vector3(2.9, 0.14, 2.4), Vector3(-17, 2.8, -1))
-	_box("warm", Vector3(2.9, 0.12, 0.14), Vector3(-17, 2.7, -2.2))
-	_sign("NIGHT BITES", Vector3(-17, 2.35, -1.7), 29, Color(1, 0.65, 0.35))
+	var stall := ModelLoader.load_model("res://assets/models/night_bites.glb")
+	_box("rust", Vector3(2.48, 0.9, 1.16), Vector3(-17, 0.45, -1), 0, true)
+	if stall != null:
+		stall.position = Vector3(-17, 0, -1)
+		stall.rotation.y = PI
+		add_child(stall)
+	else:
+		_box("dark", Vector3(2.9, 0.14, 2.4), Vector3(-17, 2.8, -1))
+		for x in [-18.1, -15.9]:
+			_box("gold", Vector3(0.08, 2.8, 0.08), Vector3(x, 1.4, -1))
+	_sign("NIGHT BITES", Vector3(-17, 2.52, -2.06), 29, Color(1, 0.65, 0.35))
 	for x in [-18.1, -15.9]:
-		_box("gold", Vector3(0.08, 2.8, 0.08), Vector3(x, 1.4, -1))
 		_box("dark", Vector3(0.45, 0.6, 0.45), Vector3(x, 0.3, -3), 0, true)
 	for z in [7.0, 13.0, 19.0]:
 		_box("dark", Vector3(0.6, 1.7, 2.3), Vector3(-19.3, 0.85, z))

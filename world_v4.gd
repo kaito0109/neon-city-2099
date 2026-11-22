@@ -1076,6 +1076,11 @@ func _build_pois() -> void:
 	_box(clinic, Vector3(10, 5, 8), Vector3(0, 2.5, 0), _mat(Color(0.55, 0.58, 0.62), 0.0, 0.6), true)
 	_box(clinic, Vector3(0.5, 2.4, 0.5), Vector3(-5.2, 6.2, 0), _mat(Color(1, 0.15, 0.2), 2.2, 0.4))
 	_box(clinic, Vector3(0.5, 0.5, 2.4), Vector3(-5.2, 6.2, 0), _mat(Color(1, 0.15, 0.2), 2.2, 0.4))
+	var frontage := ModelLoader.load_model("res://assets/models/clinic_front.glb")
+	if frontage != null:
+		frontage.position.x = -5.06
+		frontage.rotation.y = -PI * 0.5
+		clinic.add_child(frontage)
 	if _font != null:
 		var lab := Label3D.new()
 		lab.text = "クリニック"
