@@ -23,6 +23,11 @@ func _ok(cond: bool, label: String) -> void:
 		fails += 1
 		print("FAIL ", label)
 
+func _shot(name: String) -> void:
+	if "--table-shots" in OS.get_cmdline_user_args():
+		DirAccess.make_dir_recursive_absolute("/workspace/neon-casino-table-preview")
+		root.get_texture().get_image().save_png("/workspace/neon-casino-table-preview/" + name + ".png")
+
 func _initialize() -> void:
 	main = load("res://main.tscn").instantiate()
 	root.add_child(main)
@@ -95,9 +100,18 @@ func _process(_delta: float) -> bool:
 		chips_before = int(main.get("chips"))
 		cui.call("_bj_deal")
 		_ok(cui.get("_bj") != null, "BJ hand dealt")
+		var table_view: Node3D = cui.get("_table_view")
+		_ok(table_view != null and root.get_camera_3d() == table_view.camera,
+			"seated camera shows the occupied blackjack table")
+		_ok(table_view.cards.size() >= 4 and table_view.chips.get_child_count() > 0,
+			"3D cards and chips are on the blackjack table")
 		stage = 4
 		stage_t = 0
 	elif stage == 4:
+		if stage_t < 70:
+			return false
+		if stage_t == 70:
+			_shot("blackjack")
 		var bj: RefCounted = cui.get("_bj")
 		if bj != null:
 			var guard: int = 0
@@ -110,7 +124,7 @@ func _process(_delta: float) -> bool:
 				bj.call("stand")
 				cui.call("_bj_after_action")
 				guard += 1
-		if stage_t > 200:
+		if (bool(cui.get("_bj_settled")) and stage_t > 20) or stage_t > 600:
 			_ok(bool(cui.get("_bj_settled")), "BJ hand settled after reveal")
 			var expect: int = chips_before - 100
 			for r in bj.call("results"):
@@ -118,6 +132,8 @@ func _process(_delta: float) -> bool:
 			_ok(int(main.get("chips")) == expect, "BJ chips match session results (%d == %d)" % [int(main.get("chips")), expect])
 			cui.call("_unseat")
 			_ok(bool(player.get("input_enabled")), "input restored after unseat")
+			_ok(root.get_camera_3d() == player.get("_camera") and main.get("hud").visible,
+				"walking camera and HUD restored")
 			stage = 5
 			stage_t = 0
 	elif stage == 5 and stage_t > 10:
@@ -129,16 +145,40 @@ func _process(_delta: float) -> bool:
 		cui.call("_roul_add", ROL.straight(7))
 		chips_before = int(main.get("chips"))
 		cui.call("_roul_spin")
+		var table_view: Node3D = cui.get("_table_view")
+		var wheel_center: Vector3 = _table("roulette")["wheel"]["center"]
+		_ok(root.get_camera_3d() == table_view.camera and table_view.camera.global_position.distance_to(wheel_center) < 1.4,
+			"roulette camera moves close to the occupied wheel")
 		_ok(not (cui.get("_spin") as Dictionary).is_empty(), "roulette spin started")
 		(cui.get("_spin") as Dictionary)["dur"] = 0.3
 		stage = 6
 		stage_t = 0
+	elif stage == 6 and stage_t == 8:
+		_shot("roulette")
+	elif stage == 6 and stage_t == 32:
+		_shot("roulette_landed")
 	elif stage == 6 and stage_t > 40:
 		_ok((cui.get("_spin") as Dictionary).is_empty(), "roulette spin finished")
 		var after: int = int(main.get("chips"))
 		_ok(after == chips_before - 100 or after == chips_before - 100 + 3600,
 			"roulette chips consistent (after=%d)" % after)
-		_ok(bool(cui.get("_ball").visible), "ball rests in the wheel")
+		var ball: Node3D = cui.get("_ball")
+		var wheel: Node3D = _table("roulette")["wheel"]["pivot"]
+		var calibration := preload("res://casino/roulette_wheel.gd")
+		var local := wheel.to_local(ball.global_position)
+		_ok(ball.visible and is_equal_approx(Vector2(local.x, local.z).length(), calibration.POCKET_RADIUS)
+			and is_equal_approx(local.y, calibration.POCKET_HEIGHT + calibration.BALL_RADIUS),
+			"ball rests on the pocket floor inside the rotor")
+		var result: int = calibration.result_at(wheel, ball.global_position)
+		_ok(result == int(cui.get("_roulette_landed_pocket")) and
+			after == chips_before - 100 + (3600 if result == 7 else 0),
+			"landed pocket determines the actual payment")
+		var all_labels_match := true
+		for label in wheel.get_node("PocketNumbers").get_children():
+			if label is Label3D and int(label.text) != calibration.result_at(wheel, label.global_position):
+				all_labels_match = false
+		_ok(all_labels_match and wheel.get_node("PocketNumbers").get_child_count() == 38,
+			"all 37 rotor numbers match their sectors")
 		cui.call("_unseat")
 		stage = 7
 		stage_t = 0

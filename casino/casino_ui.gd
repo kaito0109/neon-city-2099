@@ -26,6 +26,9 @@ var _banner_t: float = 0.0
 
 # seating
 var _seated: Dictionary = {}
+var _table_view: Node3D
+var _bj_deal_lock := 0.0
+var _table_model_was_visible := true
 var _seat_back: Vector3 = Vector3.ZERO
 
 # patrol / ambience state
@@ -53,13 +56,9 @@ var _roul_first: int = -1
 var _spin: Dictionary = {}
 var _ball: MeshInstance3D = null
 var _dolly: MeshInstance3D = null
-# Wheel calibration (verified by tests/casino_wheel_probe.gd shots):
-# pocket index i sits at local angle POCKET_BASE + i * POCKET_STEP,
-# angle measured atan2(z, x) in the wheel pivot's local space.
-var POCKET_BASE: float = 0.0 # calibrated 2026-11-21 (wheel probe shots:
-var POCKET_STEP: float = -TAU / 37.0 # ball rests in green 0 at idx 0, red 32 at idx 1)
-const BALL_R_OUT: float = 0.40
-const BALL_R_IN: float = 0.295
+const Wheel := preload("res://casino/roulette_wheel.gd")
+var _roulette_result_hold := 0.0
+var _roulette_landed_pocket := -1
 
 # poker
 var _pk: RefCounted = null
@@ -101,13 +100,15 @@ func setup(m: Node, font: Font) -> void:
 	add_child(_banner)
 	# roulette ball + dolly live in the 3D world
 	var sm := SphereMesh.new()
-	sm.radius = 0.021
-	sm.height = 0.042
+	sm.radius = Wheel.BALL_RADIUS
+	sm.height = Wheel.BALL_RADIUS * 2.0
 	_ball = MeshInstance3D.new()
 	_ball.mesh = sm
 	var bm := StandardMaterial3D.new()
 	bm.albedo_color = Color(0.95, 0.95, 0.98)
-	bm.metallic = 0.6
+	bm.metallic = 0.15
+	bm.emission_enabled = true
+	bm.emission = Color(0.18, 0.19, 0.22)
 	bm.roughness = 0.25
 	_ball.material_override = bm
 	_ball.visible = false
@@ -177,6 +178,16 @@ func _fit_scroll_panel(pc: PanelContainer, min_size: Vector2) -> void:
 func _open_panel(title: String, min_size: Vector2, scrollable: bool = false) -> VBoxContainer:
 	_close_panel()
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	if is_instance_valid(_table_view):
+		var height := minf(min_size.y, get_viewport().get_visible_rect().size.y * 0.53)
+		min_size.y = height
+		_root.anchor_top = 1.0
+		_root.offset_top = -height - 8.0
+		_root.offset_bottom = -8.0
+	else:
+		_root.anchor_top = 0.0
+		_root.offset_top = 0.0
+		_root.offset_bottom = 0.0
 	var pc := PanelContainer.new()
 	pc.custom_minimum_size = min_size
 	pc.add_theme_stylebox_override("panel", _panel_style(int(min_size.x), int(min_size.y)))
@@ -364,6 +375,15 @@ func _seat(t: Dictionary) -> void:
 	var model: Node = _player.get("_model")
 	if model is Node3D:
 		(model as Node3D).rotation.y = yaw + PI
+	if String(t["kind"]) in ["bj", "roulette"] and t.has("table_pos"):
+		_table_view = preload("res://casino/table_presentation.gd").new()
+		_main.add_child(_table_view)
+		_table_view.setup(t, _card_atlas)
+		if model is Node3D:
+			_table_model_was_visible = model.visible
+			model.hide()
+		var hud: Node = _main.get("hud")
+		hud.hide()
 	match String(t["kind"]):
 		"bj":
 			_player.call("set_camera_dist", 2.3)
@@ -375,12 +395,31 @@ func _seat(t: Dictionary) -> void:
 			_player.call("set_camera_dist", 2.9)
 			_open_poker()
 
+func _clear_table_view() -> void:
+	if is_instance_valid(_table_view):
+		_table_view.queue_free()
+		_table_view = null
+		_main.get("hud").show()
+		var model: Node3D = _player.get("_model")
+		if model != null:
+			model.visible = _table_model_was_visible
+		var camera: Camera3D = _player.get("_camera")
+		if camera != null:
+			camera.make_current()
+	_bj_reveal.clear()
+	_bj_reveal_count = 0
+	_bj_deal_lock = 0.0
+
 func _unseat() -> void:
+	if _bj != null and not _bj_settled and String(_bj.get("phase")) == "done":
+		_settle_bj()
+	_clear_table_view()
 	_close_panel()
 	_bj = null
 	_pk = null
 	_pk_phase = ""
 	_spin.clear()
+	_roulette_result_hold = 0.0
 	if _ball != null:
 		_ball.visible = false
 	_seated = {}
@@ -398,8 +437,11 @@ func force_leave() -> void:
 		_seated = {}
 		_pk = null
 		_pk_phase = ""
+	_clear_table_view()
+	_bj = null
 	_close_panel()
 	_spin.clear()
+	_roulette_result_hold = 0.0
 	if _ball != null:
 		_ball.visible = false
 
@@ -414,6 +456,10 @@ func _pk_player_stack() -> int:
 # --- per-frame: patrols, chandeliers, VIP gate, animations --------------
 
 func tick(delta: float) -> void:
+	if _bj_deal_lock > 0.0:
+		_bj_deal_lock = maxf(0.0, _bj_deal_lock - delta)
+		if _bj_deal_lock == 0.0 and _bj != null:
+			_render_bj()
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		if _banner_t <= 0.0:
@@ -461,6 +507,10 @@ func tick(delta: float) -> void:
 	# roulette spin animation
 	if not _spin.is_empty():
 		_tick_spin(delta)
+	if _roulette_result_hold > 0.0:
+		_roulette_result_hold = maxf(0.0, _roulette_result_hold - delta)
+		if _roulette_result_hold == 0.0 and _seated.get("kind") == "roulette":
+			_render_roulette()
 	# poker CPU pacing
 	if _pk != null and _pk_phase == "play":
 		_pk_wait -= delta
@@ -656,8 +706,38 @@ func _bj_total_text(cards: Array) -> String:
 		return "%d/%d" % [int(v["total"]) - 10, int(v["total"])]
 	return str(int(v["total"]))
 
+func _sync_bj_table() -> void:
+	if not is_instance_valid(_table_view):
+		return
+	_table_view.clear_chips()
+	if _bj == null:
+		_table_view.clear_cards()
+		_table_view.place_stack(Vector3(0, 0.851, 0.43), _bj_bet)
+		return
+	var dealer: Array = _bj.get("dealer_cards")
+	var hands: Array = _bj.get("player_hands")
+	var visible_count: int = dealer.size() - _bj_reveal_left()
+	var concealed: bool = String(_bj.get("phase")) != "done" or visible_count < 2
+	var first_deal: bool = _table_view.cards.is_empty()
+	for ci in range(maxi(2, dealer.size())):
+		for hi in range(hands.size()):
+			var hand: Dictionary = hands[hi]
+			if ci >= hand["cards"].size():
+				continue
+			var lane := (float(hi) - (float(hands.size()) - 1.0) * 0.5) * 0.44
+			var offset := (float(ci) - 0.52) * (0.15 if hands.size() == 1 else 0.064)
+			_table_view.show_card("P%d_%d" % [hi, ci], int(hand["cards"][ci]),
+				Vector3(lane + offset, 0.859 + ci * 0.001, 0.28), ci * 0.29 if first_deal else 0.0)
+		if ci < dealer.size() and (ci < 2 or ci < visible_count):
+			_table_view.show_card("D%d" % ci, -1 if ci == 1 and concealed else int(dealer[ci]),
+				Vector3((ci - 0.52) * 0.15, 0.859, -0.17), 0.14 + ci * 0.29 if first_deal else 0.0)
+	for hi in range(hands.size()):
+		var lane := (float(hi) - (float(hands.size()) - 1.0) * 0.5) * 0.44
+		_table_view.place_stack(Vector3(lane, 0.851, 0.47), int(hands[hi]["bet"]))
+
 func _render_bj() -> void:
-	var vb := _open_panel("ブラックジャック（ミニマム %d）" % int(_seated["min_bet"]), Vector2(700, 560))
+	_sync_bj_table()
+	var vb := _open_panel("ブラックジャック", Vector2(700, 560), true)
 	# dealer row
 	var drow := HBoxContainer.new()
 	drow.add_theme_constant_override("separation", 6)
@@ -671,11 +751,11 @@ func _render_bj() -> void:
 			shown = 1
 		elif not _bj_settled and _bj_reveal_left() > 0:
 			shown = dc.size() - _bj_reveal_left()
-		for i in range(shown):
+		for i in range(shown if not is_instance_valid(_table_view) or _card_atlas == null else 0):
 			drow.add_child(_card_rect(int(dc[i]), false, 54))
-		if hide_hole and dc.size() > 1:
+		if hide_hole and dc.size() > 1 and (not is_instance_valid(_table_view) or _card_atlas == null):
 			drow.add_child(_card_rect(0, true, 54))
-		if not hide_hole:
+		if not hide_hole and shown == dc.size() and _bj_deal_lock <= 0.0:
 			dtotal = _bj_total_text(dc)
 	else:
 		drow.add_child(_mk_label("ベットして「配る」を押してください", 20, CpUi.CYAN))
@@ -691,9 +771,10 @@ func _render_bj() -> void:
 			hrow.add_theme_constant_override("separation", 6)
 			var mark: String = "▶ " if hi == int(_bj.get("active_hand")) and String(_bj.get("phase")) == "player" else ""
 			hrow.add_child(_mk_label("%s手 %d（ベット %d）" % [mark, hi + 1, int(h["bet"])], 20, CpUi.ICY))
-			for c in h["cards"]:
-				hrow.add_child(_card_rect(int(c), false, 54))
-			hrow.add_child(_mk_label(_bj_total_text(h["cards"]), 22, GOLD))
+			if not is_instance_valid(_table_view) or _card_atlas == null:
+				for c in h["cards"]:
+					hrow.add_child(_card_rect(int(c), false, 54))
+			hrow.add_child(_mk_label(_bj_total_text(h["cards"]) if _bj_deal_lock <= 0.0 else "配札中", 22, GOLD))
 			vb.add_child(hrow)
 	var st := _mk_label("", 23, CpUi.ICY)
 	st.name = "BjStatus"
@@ -701,13 +782,17 @@ func _render_bj() -> void:
 	# controls by phase
 	var crow := HBoxContainer.new()
 	crow.add_theme_constant_override("separation", 8)
-	vb.add_child(crow)
+	(vb.get_meta("actions_parent") as VBoxContainer).add_child(crow)
 	var phase: String = "bet" if _bj == null else String(_bj.get("phase"))
 	if _bj != null and not _bj_settled and phase == "done":
 		phase = "reveal"
+	if _bj_deal_lock > 0.0:
+		phase = "dealing"
 	match phase:
+		"dealing":
+			st.text = "カードを配っています…"
 		"bet":
-			st.text = "ベット額: %d チップ" % _bj_bet
+			st.text = "ベット %d チップ ／ 最低 %d" % [_bj_bet, int(_seated["min_bet"])]
 			for d in [25, 100, 500, 1000]:
 				var db := _mk_button("+%d" % d, CpUi.CYAN, 92)
 				db.pressed.connect(func() -> void:
@@ -819,6 +904,7 @@ func _bj_deal() -> void:
 	_bj = BJL.Session.new()
 	_bj.call("start", _bj_bet, _bj_shoe)
 	_bj_settled = false
+	_bj_deal_lock = 0.95
 	_bj_after_action()
 
 func _bj_after_action() -> void:
@@ -830,7 +916,7 @@ func _bj_after_action() -> void:
 		_bj_reveal.clear()
 		for i in range(_bj_reveal_count):
 			_bj_reveal.append(i)
-		_bj_reveal_t = 0.45
+		_bj_reveal_t = maxf(0.45, _bj_deal_lock + 0.15)
 	_render_bj()
 
 func _bj_result_text() -> String:
@@ -868,6 +954,8 @@ func _settle_bj() -> void:
 var _roul_result: String = ""
 
 func _open_roulette() -> void:
+	if _seated.has("wheel"):
+		Wheel.add_numbers(_seated["wheel"]["pivot"])
 	_roul_bets.clear()
 	_roul_first = -1
 	_roul_result = ""
@@ -974,7 +1062,39 @@ func _num_button(n: int) -> Button:
 	b.pressed.connect(func() -> void: _roul_tap(n))
 	return b
 
+# Match the printed texture coordinates from blender/paint_casino.py.
+func _roulette_felt_position(bet: Dictionary) -> Vector2:
+	var label: String = bet["label"]
+	var outside := ["low 1-18", "even", "red", "black", "odd", "high 19-36"]
+	var cell := outside.find(label)
+	if cell >= 0:
+		return Vector2(573 + (cell + 0.5) * 1457 / 6, 872.5)
+	if label.begins_with("dozen "):
+		return Vector2(573 + (int(label.get_slice(" ", 1)) - 0.5) * 1317 / 3, 717.5)
+	if label.begins_with("column "):
+		return Vector2(1960, 80 + (3.5 - int(label.get_slice(" ", 1))) * 545 / 3)
+	var numbers: Array = bet["numbers"]
+	var sample := Vector2.ZERO
+	for number in numbers:
+		if int(number) == 0:
+			sample += Vector2(611.5, 352.5)
+		else:
+			var index := int(number) - 1
+			sample += Vector2(650 + (floori(float(index) / 3) + 0.5) * 1240 / 12,
+				80 + (index % 3 + 0.5) * 545 / 3)
+	return sample / numbers.size()
+
 func _render_roulette() -> void:
+	if is_instance_valid(_table_view):
+		_table_view.frame_table()
+		_table_view.clear_chips()
+		for bet in _roul_bets:
+			var numbers: Array = bet["numbers"]
+			if numbers.is_empty():
+				continue
+			var sample := _roulette_felt_position(bet)
+			_table_view.place_stack(Vector3(sample.x / 2048 * 3.0 - 1.5, 0.851,
+				sample.y / 1024 * 1.6 - 0.8), int(bet["amount"]))
 	var vb := _open_panel("ルーレット（ミニマム %d）" % int(_seated["min_bet"]), Vector2(780, 620), true)
 	vb.add_theme_constant_override("separation", 6)
 	if _roul_result != "":
@@ -1101,39 +1221,43 @@ func _roul_spin() -> void:
 		_roul_last.append((b as Dictionary).duplicate())
 	var winfo: Dictionary = _seated["wheel"]
 	var pivot: Node3D = winfo["pivot"]
-	var pocket: int = ROL.spin(_rng)
-	var idx: int = ROL.WHEEL_ORDER.find(pocket)
 	var w0: float = pivot.rotation.y
 	var w1: float = w0 + 4.0 * TAU + _rng.randf() * TAU
-	var phi: float = POCKET_BASE + float(idx) * POCKET_STEP
 	var a0: float = _rng.randf() * TAU
-	var base: float = phi - w1
-	var k: float = round((a0 - 5.0 * TAU - base) / TAU)
-	_spin = {"pivot": pivot, "center": winfo["center"], "t": 0.0, "dur": 5.4,
-		"w0": w0, "w1": w1, "a0": a0, "a1": base + k * TAU, "pocket": pocket}
+	# Independent spin phase and ball travel. Resolve the number from the
+	# final wheel-local ball angle, after the ball has crossed the rim.
+	var a1 := a0 - (4.0 * TAU + _rng.randf() * TAU)
+	_spin = {"pivot": pivot, "t": 0.0, "dur": 5.4,
+		"w0": w0, "w1": w1, "a0": a0, "a1": a1}
+	_roulette_landed_pocket = -1
 	_ball.visible = true
+	if is_instance_valid(_table_view):
+		_table_view.focus_wheel(winfo["center"])
 	_close_panel()
 	_show_banner("Rien ne va plus — 回転中…", 2.0)
 
 func _tick_spin(delta: float) -> void:
 	var pivot: Node3D = _spin["pivot"]
-	var center: Vector3 = _spin["center"]
 	_spin["t"] = float(_spin["t"]) + delta
 	var u: float = clampf(float(_spin["t"]) / float(_spin["dur"]), 0.0, 1.0)
-	var w0: float = float(_spin["w0"])
-	var w1: float = float(_spin["w1"])
-	pivot.rotation.y = w0 + (w1 - w0) * (1.0 - pow(1.0 - u, 3.0))
+	pivot.rotation.y = lerpf(float(_spin["w0"]), float(_spin["w1"]), 1.0 - pow(1.0 - u, 3.0))
 	var a0: float = float(_spin["a0"])
 	var a1: float = float(_spin["a1"])
-	var ang: float = a1 + (a0 - a1) * pow(1.0 - u, 2.0)
-	var r: float = BALL_R_OUT
-	if u > 0.5:
-		var s: float = clampf((u - 0.5) / 0.45, 0.0, 1.0)
-		s = s * s * (3.0 - 2.0 * s)
-		r = lerpf(BALL_R_OUT, BALL_R_IN, s)
-	_ball.global_position = center + Vector3(cos(ang), 0, sin(ang)) * r + Vector3(0, 0.055 * (1.0 - u), 0)
+	var angle: float = lerpf(a1, a0, pow(1.0 - u, 2.0))
+	var drop := smoothstep(0.52, 0.91, u)
+	var radius := lerpf(0.373, Wheel.POCKET_RADIUS, drop)
+	var height := lerpf(0.152, Wheel.POCKET_HEIGHT + Wheel.BALL_RADIUS, drop)
+	var bounce: float = absf(sin(drop * PI * 3.0)) * (1.0 - drop) * drop * 0.065
+	var world_point := pivot.global_position + Vector3(cos(angle) * radius, height + bounce, sin(angle) * radius)
 	if u >= 1.0:
-		var pocket: int = int(_spin["pocket"])
+		var local := pivot.to_local(world_point)
+		var slot := roundf(atan2(local.z, local.x) / Wheel.STEP) * Wheel.STEP
+		world_point = pivot.to_global(Vector3(cos(slot) * Wheel.POCKET_RADIUS,
+			Wheel.POCKET_HEIGHT + Wheel.BALL_RADIUS, sin(slot) * Wheel.POCKET_RADIUS))
+	_ball.global_position = world_point
+	if u >= 1.0:
+		var pocket := Wheel.result_at(pivot, _ball.global_position)
+		_roulette_landed_pocket = pocket
 		_spin.clear()
 		var res: Dictionary = ROL.settle(_roul_bets, pocket)
 		var ret: int = int(res["total_return"])
@@ -1145,7 +1269,7 @@ func _tick_spin(delta: float) -> void:
 		_roul_result = "結果: %d（%s） — 戻し %d（損益 %+d）" % [pocket, cname, ret, net]
 		_show_banner(_roul_result, 3.4)
 		_roul_bets.clear()
-		_render_roulette()
+		_roulette_result_hold = 1.8
 
 # --- poker (Texas hold'em vs CPU) -------------------------------------------
 

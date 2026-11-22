@@ -1156,3 +1156,31 @@ the existing export/build flow and avoids duplicate names on future retries.
 - Godot 4.6.3 headless checks cover clip selection and animation playback,
   casino access and existing UI regressions. Visual pose quality and mobile
   touch feel still need playtesting. Ledge contact IK and NPCs remain follow-ups.
+
+## Casino tabletop update
+
+### Casino table presentation
+
+- Seated blackjack and roulette use a camera attached to the occupied
+  table. The betting/action panel sits at the bottom with scrollable content;
+  standing restores the player's camera and HUD.
+- Blackjack deals face-down 3D card sprites from the existing shoe position,
+  then rotates them to reveal their atlas faces. The dealer hole card stays
+  covered until the existing reveal sequence. Table stacks use the existing
+  Blender casino chip model. Initial controls wait for the deal animation.
+- Roulette bet stacks are placed on the numbers or outside-bet cells of
+  the printed felt. SPIN focuses the existing wheel and ball at the
+  occupied table, then returns to the table composition for results.
+- Godot 4.6.3 casino integration, v6.2 regression and 113 casino logic
+  checks passed. Mobile touch and browser playtesting remain pending.
+
+### Roulette pocket calibration
+
+- Fit the ball inside the Blender rotor's pocket radius and floor height.
+  Render 37 high-contrast sector labels as part of the rotor, with the
+  European order matching Blender-to-Godot axis conversion.
+- Animate the ball and wheel from randomized starting and travel angles.
+  At the end, center the ball in its nearest pocket and use the final
+  wheel-local position for payout. This is a scripted animation.
+- Keep the close-up briefly after the ball lands. The Godot 4.6.3
+  integration suite checks position, every number and payout consistency.
