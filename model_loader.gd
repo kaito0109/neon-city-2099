@@ -143,6 +143,12 @@ static func _repair_materials(n: Node) -> void:
 				var m: Material = mi.mesh.surface_get_material(i)
 				if m is StandardMaterial3D:
 					var sm := m as StandardMaterial3D
+					if sm.resource_name == "RouletteFeltTouch":
+						var felt := sm.duplicate() as StandardMaterial3D
+						felt.albedo_color = Color.WHITE
+						felt.albedo_texture = TextureLoader.load_tex(
+							"res://assets/textures/roulette_layout.jpg", "res://assets/texture_data/roulette_layout.tres")
+						mi.set_surface_override_material(i, felt)
 					if sm.emission_enabled:
 						var nm := StandardMaterial3D.new()
 						nm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -151,3 +157,4 @@ static func _repair_materials(n: Node) -> void:
 						mi.set_surface_override_material(i, nm)
 	for c in n.get_children():
 		_repair_materials(c)
+

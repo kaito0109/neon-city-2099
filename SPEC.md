@@ -1184,3 +1184,17 @@ the existing export/build flow and avoids duplicate names on future retries.
   wheel-local position for payout. This is a scripted animation.
 - Keep the close-up briefly after the ball lands. The Godot 4.6.3
   integration suite checks position, every number and payout consistency.
+
+### Direct roulette betting
+
+- Replace the clipped D-shaped felt with a full-width Blender tabletop
+  carrying the same printed board coordinates, and frame the table from
+  above. Click or tap the felt to bet. The fixed footer shows bet mode,
+  denomination, total, clear, repeat, spin and leave.
+- Animate the ball with decreasing angular speed through the end of
+  the spin. Randomize hop timing and height and play short rattle
+  sounds as the ball moves inward. Resolve the payout from the final
+  wheel-relative position.
+- The Godot 4.6.3 casino integration projects a pointer press onto the
+  printed 7, checks that the bet is placed and the scrolling grid is
+  absent, and checks the ball direction, pocket and payout.

@@ -2923,9 +2923,9 @@ func _build_casino() -> void:
 		place.call(rt_path, rp[0], rp[1])
 		collide.call(rp[0], rp[1], Vector3(3.1, 1.0, 1.7))
 		var t2: Dictionary = add_table.call("roulette", "ルーレット", rp[0], rp[1], 25, false)
-		var wheel: Node3D = place.call(wheel_path, rp[0] - 0.95, rp[1], 0.0, 1.0, 0.85)
+		var wheel: Node3D = place.call(wheel_path, rp[0] - 1.04, rp[1], 0.0, 1.0, 0.85)
 		if wheel != null:
-			var winfo: Dictionary = {"pivot": wheel, "center": L.call(rp[0] - 0.95, 1.02, rp[1])}
+			var winfo: Dictionary = {"pivot": wheel, "center": L.call(rp[0] - 1.04, 1.02, rp[1])}
 			roulette_wheels.append(winfo)
 			t2["wheel"] = winfo
 		npc.call(dealer_casts[di % 2], rp[0] + 0.3, rp[1] - 1.15, 0.0)
@@ -2971,9 +2971,9 @@ func _build_casino() -> void:
 	place.call(rt_path, 37, -16)
 	collide.call(37, -16, Vector3(3.1, 1.0, 1.7))
 	var tv: Dictionary = add_table.call("roulette", "VIP ルーレット", 37, -16, 500, true)
-	var wheel_v: Node3D = place.call(wheel_path, 36.05, -16, 0.0, 1.0, 0.85)
+	var wheel_v: Node3D = place.call(wheel_path, 35.96, -16, 0.0, 1.0, 0.85)
 	if wheel_v != null:
-		var wv: Dictionary = {"pivot": wheel_v, "center": L.call(36.05, 1.02, -16)}
+		var wv: Dictionary = {"pivot": wheel_v, "center": L.call(35.96, 1.02, -16)}
 		roulette_wheels.append(wv)
 		tv["wheel"] = wv
 	npc.call("WomanCasual", 37.3, -17.15, 0.0)
