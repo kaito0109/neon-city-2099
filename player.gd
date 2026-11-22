@@ -22,6 +22,9 @@ var _camera: Camera3D
 var _model_yaw: float = 0.0
 var _jump_queued: bool = false
 var _cur_clip: String = ""
+var _parkour_clips := false
+var _landing_time := 0.0
+var _mantle_time := 0.0
 var _air_jumps: int = 0
 var _fall_peak: float = 0.0
 var _was_floor: bool = true
@@ -75,6 +78,7 @@ func _build_model() -> void:
 	if inst != null:
 		_model.add_child(inst)
 		_anim = People.find_ap(inst)
+		_parkour_clips = preload("res://player_parkour.gd").install(inst, _anim)
 		People.play(_anim, "Idle")
 	else:
 		# Fallback silhouette if the model cannot be loaded.
@@ -201,6 +205,8 @@ func _maybe_autograb(wish: Vector3) -> void:
 const ROLL_SPD: float = 2.0
 
 func _on_land() -> void:
+	if _air_time > 0.14 and _fall_peak > 3.5:
+		_landing_time = 0.19
 	# A landing ends any flip / fall lean on the spot: the model must
 	# never keep rotating or leaning once the feet are down.
 	_flip_t = 0.0
@@ -233,6 +239,7 @@ func _do_climb(wish: Vector3) -> void:
 		# near the top the chest ray can also miss (setback crowns),
 		# and treating that as "wall ended" stalled the climb.
 		_climbing = false
+		_mantle_time = 0.33
 		velocity = into * 3.4 + Vector3(0, 8.6, 0)
 		_air_jumps = 0
 		move_and_slide()
@@ -336,6 +343,9 @@ func _physics_process(delta: float) -> void:
 	_update_anim(delta, wish, on_floor)
 
 func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
+	_landing_time = maxf(0, _landing_time - delta)
+	_mantle_time = maxf(0, _mantle_time - delta)
+	on_floor = on_floor and velocity.y <= 0.0
 	# Face movement direction; keep model under the camera yaw when idle.
 	if wish.length() > 0.1 and not _climbing:
 		var target: float = atan2(wish.x, wish.z)
@@ -363,11 +373,22 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 	var want: String = "Idle"
 	var spd: float = 1.0
 	if _climbing:
-		want = "Walk"
+		want = "parkour/WallClimb" if _parkour_clips else "Walk"
 		spd = 1.15
 	elif _roll_t > 0.0:
 		want = "Roll"
 		spd = ROLL_SPD
+	elif not on_floor and _parkour_clips:
+		if _flip_t > 0.0:
+			want = "parkour/AirBoost"
+		elif _mantle_time > 0.0:
+			want = "parkour/Mantle"
+		elif velocity.y > 0.4:
+			want = "parkour/Takeoff"
+		else:
+			want = "parkour/Fall"
+	elif on_floor and _parkour_clips and _landing_time > 0.0:
+		want = "parkour/Land"
 	elif not on_floor:
 		want = "Run"
 		spd = 0.35 if velocity.y < -2.5 else 0.8
@@ -379,6 +400,9 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 		spd = clampf(hspeed / 2.2, 0.6, 1.8)
 	if want != _cur_clip:
 		_cur_clip = want
-		People.play(_anim, want, want == "Roll")
+		if want.begins_with("parkour/"):
+			_anim.play(want, 0.07)
+		else:
+			People.play(_anim, want, want == "Roll")
 	_anim.speed_scale = spd
 

@@ -1146,3 +1146,13 @@ the existing export/build flow and avoids duplicate names on future retries.
   ModelBlobs add a warm service counter with a steel worktop and menu,
   and a cooler clinic entrance with frosted panels and a canopy.
   Existing collision, respawn and storefront interaction remain.
+
+## v6.7 — Player parkour motion pass
+
+- Add in-place, bone-keyed takeoff, falling, air boost, landing, wall climb
+  and mantle clips for the existing Cyber rig. Motion selection follows the
+  existing player physics, with a short blend into the new poses. Keep the
+  hard-landing roll and the existing fallback for unsupported rigs.
+- Godot 4.6.3 headless checks cover clip selection and animation playback,
+  casino access and existing UI regressions. Visual pose quality and mobile
+  touch feel still need playtesting. Ledge contact IK and NPCs remain follow-ups.
