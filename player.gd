@@ -89,6 +89,14 @@ func _build_model() -> void:
 		cap.material_override = m
 		_model.add_child(cap)
 
+func face_passage(heading: float) -> void:
+	yaw = heading
+	_yaw_t = heading
+	_model_yaw = heading + PI
+	_model.rotation.y = _model_yaw
+	_pivot.rotation = Vector3(pitch, yaw, 0.0)
+	reset_physics_interpolation()
+
 func set_camera_dist(d: float) -> void:
 	if _spring != null:
 		_spring.spring_length = d
@@ -373,3 +381,4 @@ func _update_anim(delta: float, wish: Vector3, on_floor: bool) -> void:
 		_cur_clip = want
 		People.play(_anim, want, want == "Roll")
 	_anim.speed_scale = spd
+

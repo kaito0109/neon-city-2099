@@ -2590,6 +2590,9 @@ func _blotch_texture() -> ImageTexture:
 	_blotch_tex = ImageTexture.create_from_image(img)
 	return _blotch_tex
 
+# Keep generic city decals off the casino approach and its road edge.
+const CASINO_APPROACH := Rect2(9, 22, 37, 13)
+
 func _build_ground_v59() -> void:
 	var grng := RandomNumberGenerator.new()
 	grng.seed = 5903
@@ -2614,6 +2617,8 @@ func _build_ground_v59() -> void:
 		if h0 < -1.0:
 			continue  # canal
 		var sc: float = grng.randf_range(17.0, 40.0)
+		if CASINO_APPROACH.grow(sc * 0.75).has_point(Vector2(px, pz)):
+			continue
 		var flat_ok: bool = true
 		for o in [Vector2(sc * 0.3, 0), Vector2(-sc * 0.3, 0),
 				Vector2(0, sc * 0.3), Vector2(0, -sc * 0.3)]:
@@ -2659,6 +2664,8 @@ func _build_ground_v59() -> void:
 			var dir: Vector2 = (b2 - a).normalized()
 			var side := Vector2(-dir.y, dir.x) * grng.randf_range(-w * 0.22, w * 0.22)
 			var pp := Vector3(mid.x + side.x, 0, mid.y + side.y)
+			if CASINO_APPROACH.grow(4.0).has_point(Vector2(pp.x, pp.z)):
+				continue
 			pp.y = _terrain_height(pp.x, pp.z) + 0.10
 			var yaw2: float = atan2(dir.x, dir.y) + grng.randf_range(-0.4, 0.4)
 			pxf.append(Transform3D(
@@ -2671,6 +2678,8 @@ func _build_ground_v59() -> void:
 		var ang: float = grng.randf() * TAU
 		var rad: float = grng.randf_range(9.0, 30.0)
 		var pp := Vector3(cos(ang) * rad, 0.10, sin(ang) * rad)
+		if CASINO_APPROACH.grow(4.0).has_point(Vector2(pp.x, pp.z)):
+			continue
 		pxf.append(Transform3D(
 			Basis(Vector3.UP, grng.randf() * TAU) * Basis.from_scale(Vector3(
 				grng.randf_range(2.5, 6.0), 1, grng.randf_range(1.4, 3.0))),
@@ -2772,11 +2781,27 @@ func _build_casino() -> void:
 		omni.omni_range = 21.0
 		omni.shadow_enabled = false
 		add_child(omni)
+	# Exit doors open toward side pockets as the player approaches.
+	var exit_doors: Array[Node3D] = []
+	for side in [-1.0, 1.0]:
+		var leaf := Node3D.new()
+		leaf.position = L.call(side * 1.32, 0, 27.9)
+		add_child(leaf)
+		_box(leaf, Vector3(2.5, 3.3, 0.11), Vector3(0, 1.7, 0), glass_mat)
+		for y in [0.12, 3.3]:
+			_box(leaf, Vector3(2.5, 0.12, 0.14), Vector3(0, y, 0), gold_mat)
+		_box(leaf, Vector3(0.08, 0.75, 0.21), Vector3(-side * 1.05, 1.45, 0), gold_mat)
+		exit_doors.append(leaf)
+	for x in [-2.7, 2.7]:
+		_box(self, Vector3(0.17, 3.5, 0.25), L.call(x, 1.75, 27.9), gold_mat)
+	_box(self, Vector3(5.6, 0.18, 0.26), L.call(0, 3.5, 27.9), gold_mat)
+	var exit_sign := _label3d("EXIT", L.call(0, 3.9, 27.7), 90, Color(0.55, 1.0, 0.86), self)
+	exit_sign.rotation.y = PI
 	# signs inside
 	var isign := _label3d("CASINO NEON PEARL", L.call(0, 5.6, 28.55), 150, Color(1.0, 0.5, 0.78), self)
 	isign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	isign.rotation.y = PI
-	var sign21 := _label3d("21+", L.call(0, 3.4, 26.5), 120, Color(1.0, 0.35, 0.6), self)
+	var sign21 := _label3d("21+", L.call(0, 4.65, 28.5), 120, Color(1.0, 0.35, 0.6), self)
 	sign21.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sign21.rotation.y = PI
 
@@ -2989,6 +3014,9 @@ func _build_casino() -> void:
 		"street_pos": Vector3(CASINO_DOOR.x, gy, CASINO_DOOR.y),
 		"enter_pos": L.call(0, 0.35, 24.5),
 		"exit_pos": L.call(0, 0, 26.8),
+		"auto_exit_pos": L.call(0, 0, 28.1),
+		"auto_entry_pos": exterior.to_global(Vector3(0, 0, 7.25)),
+		"exit_doors": exit_doors,
 		"counter_pos": L.call(24, 0, 26.2),
 		"cam_dist": 3.4,
 		"buys": buys,

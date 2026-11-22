@@ -156,7 +156,7 @@ func _podium() -> void:
 		_box("gold", Vector3(0.45, 5.2, 0.45), Vector3(x, 2.6, -4.0), 0, true)
 	_sign("CASINO  NEON PEARL", Vector3(0, 8.5, -0.5), 128, Color(1, 0.75, 0.38))
 	_sign("HOTEL  /  CASINO  /  NEON CIRCLE", Vector3(0, 6.65, -0.5), 37, Color(0.65, 0.85, 0.9))
-	_sign("ENTRANCE  •  ACT", Vector3(0, 4.35, -0.3), 34, Color(0.55, 0.95, 1.0))
+	_sign("CASINO ENTRANCE", Vector3(0, 4.35, -0.3), 34, Color(0.55, 0.95, 1.0))
 	for x in [-3.2, 3.2]:
 		_box("gold", Vector3(0.22, 4.1, 0.4), Vector3(x, 2.05, 0.1))
 		_box("warm", Vector3(0.08, 3.8, 0.12), Vector3(x, 2.05, -0.15))
@@ -232,15 +232,9 @@ func _towers() -> void:
 			_box("gold", Vector3(2.9, 0.07, 0.14), Vector3(x, 11.8, 30.7 + z * 0.55))
 
 func _forecourt() -> void:
-	# Shallow paving meets the existing plaza without a trip-height step.
-	_box("paving", Vector3(24, 0.06, 9), Vector3(-2, 0.03, -5.0))
-	for x in range(-13, 10, 2):
-		_box("dark", Vector3(0.025, 0.015, 8.8), Vector3(x, 0.067, -5.0))
-	for z in [-8.0, -6.0, -4.0, -2.0]:
-		_box("dark", Vector3(23.8, 0.015, 0.025), Vector3(-2, 0.067, z))
-	# Clear central path; light strips terminate before the clinic's frontage.
-	for x in [-3.0, 3.0]:
-		_box("warm", Vector3(0.07, 0.02, 8.8), Vector3(x, 0.08, -5))
+	# Use the existing plaza surface as the single ground layer.
+	for x in [-3.8, 3.8]:
+		_box("stone", Vector3(0.23, 0.15, 8.4), Vector3(x, 0.13, -5))
 	for x in [-8.0, 8.0]:
 		var z: float = -5.0 if x > 0 else -7.0 # leave the clinic's rear corner clear
 		_box("stone", Vector3(3.4, 0.7, 1.5), Vector3(x, 0.35, z), 0, true)
@@ -250,8 +244,6 @@ func _forecourt() -> void:
 		for z in [-3.0, -6.0]:
 			_box("dark", Vector3(0.2, 0.85, 0.2), Vector3(x, 0.425, z), 0, true)
 			_box("warm", Vector3(0.22, 0.15, 0.22), Vector3(x, 0.85, z))
-	for p in [Vector3(-7, 0.075, -3), Vector3(5, 0.075, -5), Vector3(-11, 0.075, -5)]:
-		_box("wet", Vector3(2.2, 0.008, 0.9), p, 0.3)
 	for x in [-6.0, 6.0]:
 		var light := OmniLight3D.new()
 		light.position = Vector3(x, 4.7, -2)
@@ -284,9 +276,10 @@ func _street_details() -> void:
 			_box("rust", Vector3(0.66, 0.06, 1.9), Vector3(-19.3, 0.3 + y * 0.22, z))
 	for x in [-14.0, -12.8]:
 		_box("rust", Vector3(0.8, 0.65, 0.8), Vector3(x, 0.325, 1))
-	# Drain and conduit details, not additional physics obstacles.
-	for z in range(12):
-		_box("dark", Vector3(0.55, 0.02, 0.07), Vector3(-14, 0.075, -9 + z * 0.7))
+	var drain := ModelLoader.load_model("res://assets/models/neon_drain.glb")
+	if drain != null:
+		drain.position = Vector3(-4.3, 0.10, -6)
+		add_child(drain)
 	for x in [-17.5, 17.5]:
 		_box("gold", Vector3(0.12, 8, 0.12), Vector3(x, 4, -0.4))
 	# Cable trays along the side facades.
