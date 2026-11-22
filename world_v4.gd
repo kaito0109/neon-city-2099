@@ -2178,11 +2178,34 @@ func _build_shops() -> void:
 		panel.position = Vector3(door_xz.x, gy, door_xz.y)
 		panel.rotation.y = atan2(face.x, face.y)
 		add_child(panel)
-		_box(panel, Vector3(7.5, 4.6, 0.5), Vector3(0, 2.3, 0), _mat(Color(0.22, 0.24, 0.30), 0.0, 0.8), true)
-		_box(panel, Vector3(7.5, 0.9, 0.56), Vector3(0, 4.15, 0), accent)
-		_box(panel, Vector3(1.7, 2.7, 0.14), Vector3(0, 1.35, 0.28), _mat(Color(0.30, 0.45, 0.60), 0.35, 0.25))
-		_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(-2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
-		_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
+		var denki_front: Node3D = null
+		if def["kind"] == "denki":
+			denki_front = ModelLoader.load_model("res://assets/models/denki_front.glb")
+		if denki_front != null:
+			denki_front.name = "DenkiFront"
+			panel.add_child(denki_front)
+			var body := StaticBody3D.new()
+			var collision := CollisionShape3D.new()
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(7.5, 4.6, 0.5)
+			collision.shape = shape
+			collision.position.y = 2.3
+			body.add_child(collision)
+			panel.add_child(body)
+			var light := OmniLight3D.new()
+			light.position = Vector3(0, 3.25, 0.95)
+			light.light_color = Color(1, 0.73, 0.48)
+			light.light_energy = 1.2
+			light.omni_range = 5.5
+			light.distance_fade_enabled = true
+			light.distance_fade_begin = 22.0
+			panel.add_child(light)
+		else:
+			_box(panel, Vector3(7.5, 4.6, 0.5), Vector3(0, 2.3, 0), _mat(Color(0.22, 0.24, 0.30), 0.0, 0.8), true)
+			_box(panel, Vector3(7.5, 0.9, 0.56), Vector3(0, 4.15, 0), accent)
+			_box(panel, Vector3(1.7, 2.7, 0.14), Vector3(0, 1.35, 0.28), _mat(Color(0.30, 0.45, 0.60), 0.35, 0.25))
+			_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(-2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
+			_box(panel, Vector3(2.3, 2.9, 0.1), Vector3(2.2, 1.45, 0.27), _mat(Color(0.38, 0.55, 0.72), 0.3, 0.2))
 		var sign_l := _label3d(String(def["name"]), Vector3(0, 4.15, 0.5), 110, Color(1, 1, 1), panel)
 		sign_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		# --- interior room, 40 m below the shop ---

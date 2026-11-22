@@ -1126,3 +1126,16 @@ the existing export/build flow and avoids duplicate names on future retries.
   original Blender cast-metal drain shipped as a ModelBlob.
 - Godot 4.6.3 headless checks passed for repeated transfers and arrival
   separation, existing casino interaction, saves and earlier UI regressions.
+
+## v6.6 — Denki storefront pilot
+
+- Rebuild the electronics shop beside NEON PEARL with a Blender-authored
+  frontage. The deep enamel canopy, framed smoked glass, diagnostic
+  displays, conduit and vent louvers give the shop a readable street-level
+  identity. One warm, distance-faded light illuminates its entrance.
+- Export six material groups in a ModelBlob via
+  `blender/build_denki_front.py`. Keep the shop's entrance, collision and
+  mission destination. Fall back to the original frontage if loading fails.
+- Godot 4.6.3 casino landmark and v54 shop/footbridge tests passed. This
+  pilot covers the casino-adjacent shop frontage. Web and iPhone frame
+  rates were not measured.
