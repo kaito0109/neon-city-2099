@@ -39,6 +39,20 @@ func frame_table() -> void:
 	camera.look_at(to_global(Vector3(0, 0.55, 0.52)))
 	camera.fov = 55
 
+func frame_roulette_table() -> void:
+	camera.position = Vector3(0, 4.05, 0.47)
+	camera.look_at(to_global(Vector3(0, 0.85, 0.45)))
+	camera.fov = 46
+
+func felt_pixel(screen: Vector2) -> Vector2:
+	var origin := camera.project_ray_origin(screen)
+	var direction := camera.project_ray_normal(screen)
+	var hit: Variant = Plane(Vector3.UP, global_position.y + 0.85).intersects_ray(origin, direction)
+	if hit == null:
+		return Vector2(-1, -1)
+	var point := to_local(hit)
+	return Vector2((point.x + 1.5) / 3.0 * 2048, (point.z + 0.8) / 1.6 * 1024)
+
 func clear_cards() -> void:
 	for entry in cards.values():
 		entry["node"].queue_free()

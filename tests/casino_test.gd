@@ -15,6 +15,7 @@ var casino_i: int = -1
 var site: Dictionary = {}
 var cz: Dictionary = {}
 var chips_before: int = 0
+var last_ball_angle := INF
 
 func _ok(cond: bool, label: String) -> void:
 	if cond:
@@ -141,8 +142,29 @@ func _process(_delta: float) -> bool:
 		player.global_position = _table("roulette")["seat_pos"]
 		main.call("interact")
 		_ok(not (cui.get("_seated") as Dictionary).is_empty(), "seated at roulette")
+		stage = 51
+		stage_t = 0
+	elif stage == 51 and stage_t > 8:
+		var spin_button := _find_button(cui.get("_root"), "SPIN")
+		var leave_button := _find_button(cui.get("_root"), "離席")
+		_ok(root.get_visible_rect().encloses(spin_button.get_global_rect())
+			and root.get_visible_rect().encloses(leave_button.get_global_rect()),
+			"roulette action buttons fully visible")
+		_shot("roulette_betting")
+		var view: Node3D = cui.get("_table_view")
+		var felt := Vector3((650.0 + 2.5 * 1240.0 / 12.0) / 2048.0 * 3.0 - 1.5,
+			0.85, (80.0 + 0.5 * 545.0 / 3.0) / 1024.0 * 1.6 - 0.8)
+		var button := InputEventMouseButton.new()
+		button.button_index = MOUSE_BUTTON_LEFT
+		button.pressed = true
+		button.position = view.camera.unproject_position(view.to_global(felt))
 		cui.set("_roul_denom", 100)
-		cui.call("_roul_add", ROL.straight(7))
+		root.push_input(button, true)
+		var bets: Array = cui.get("_roul_bets")
+		_ok(bets.size() == 1 and bets[0]["numbers"] == [7],
+			"tapping printed 7 through the seated camera places its bet")
+		_ok((cui.get("_root") as Control).find_child("BetScroll", true, false) == null,
+			"occupied roulette has no scrolling bet grid")
 		chips_before = int(main.get("chips"))
 		cui.call("_roul_spin")
 		var table_view: Node3D = cui.get("_table_view")
@@ -150,14 +172,23 @@ func _process(_delta: float) -> bool:
 		_ok(root.get_camera_3d() == table_view.camera and table_view.camera.global_position.distance_to(wheel_center) < 1.4,
 			"roulette camera moves close to the occupied wheel")
 		_ok(not (cui.get("_spin") as Dictionary).is_empty(), "roulette spin started")
-		(cui.get("_spin") as Dictionary)["dur"] = 0.3
+		(cui.get("_spin") as Dictionary)["dur"] = 1.0
 		stage = 6
 		stage_t = 0
-	elif stage == 6 and stage_t == 8:
-		_shot("roulette")
-	elif stage == 6 and stage_t == 32:
-		_shot("roulette_landed")
-	elif stage == 6 and stage_t > 40:
+	elif stage == 6 and stage_t < 63:
+		if stage_t == 44:
+			_shot("roulette")
+		elif stage_t == 62:
+			_shot("roulette_landed")
+		if stage_t >= 20:
+			var wheel: Node3D = _table("roulette")["wheel"]["pivot"]
+			var ball: Node3D = cui.get("_ball")
+			var local := wheel.to_local(ball.global_position)
+			var angle := atan2(local.z, local.x)
+			if last_ball_angle != INF and wrapf(angle - last_ball_angle, -PI, PI) > 0.0001:
+				_ok(false, "ball reversed near the pockets")
+			last_ball_angle = angle
+	elif stage == 6:
 		_ok((cui.get("_spin") as Dictionary).is_empty(), "roulette spin finished")
 		var after: int = int(main.get("chips"))
 		_ok(after == chips_before - 100 or after == chips_before - 100 + 3600,

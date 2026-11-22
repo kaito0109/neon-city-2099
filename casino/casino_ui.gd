@@ -59,6 +59,7 @@ var _dolly: MeshInstance3D = null
 const Wheel := preload("res://casino/roulette_wheel.gd")
 var _roulette_result_hold := 0.0
 var _roulette_landed_pocket := -1
+var _wheel_rattle: AudioStreamPlayer
 
 # poker
 var _pk: RefCounted = null
@@ -98,6 +99,11 @@ func setup(m: Node, font: Font) -> void:
 	_banner.size = Vector2(800, 60)
 	_banner.visible = false
 	add_child(_banner)
+	_wheel_rattle = AudioStreamPlayer.new()
+	_wheel_rattle.stream = _make_wheel_click()
+	_wheel_rattle.volume_db = -13
+	_wheel_rattle.max_polyphony = 3
+	add_child(_wheel_rattle)
 	# roulette ball + dolly live in the 3D world
 	var sm := SphereMesh.new()
 	sm.radius = Wheel.BALL_RADIUS
@@ -359,6 +365,8 @@ func _seat(t: Dictionary) -> void:
 	if String(t["kind"]) == "poker" and _chips() < 2500:
 		_toast("ポーカーのバイインは 2,500 チップ — キャッシャーで購入しよう")
 		return
+	_banner_t = 0.0
+	_banner.hide()
 	_seated = t
 	_seat_back = (t["seat_pos"] as Vector3) + Vector3(0, 0, 1.1)
 	_player.global_position = (t["seat_pos"] as Vector3) + Vector3(0, 0.05, 0)
@@ -1009,11 +1017,13 @@ func _roul_tap(n: int) -> void:
 				_toast("スプリット: 隣の数字をもう1つタップ")
 				_render_roulette()
 			else:
-				if _roul_adjacent(_roul_first, n):
-					_roul_add(ROL.split(_roul_first, n))
+				var first := _roul_first
+				_roul_first = -1
+				if _roul_adjacent(first, n):
+					_roul_add(ROL.split(first, n))
 				else:
 					_toast("隣り合った数字のペアだけスプリットできる")
-				_roul_first = -1
+					_render_roulette()
 		"street":
 			if n == 0:
 				_toast("0 にストリートはない")
@@ -1084,9 +1094,68 @@ func _roulette_felt_position(bet: Dictionary) -> Vector2:
 				80 + (index % 3 + 0.5) * 545 / 3)
 	return sample / numbers.size()
 
+const ROULETTE_MODES := ["straight", "split", "street", "corner", "sixline"]
+const ROULETTE_MODE_NAMES := ["ストレート", "スプリット", "ストリート", "コーナー", "ライン"]
+const ROULETTE_CHIPS := [25, 100, 500, 1000, 5000]
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not is_instance_valid(_table_view) or _seated.get("kind") != "roulette" or not _spin.is_empty() or _roulette_result_hold > 0.0:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		if _bet_on_felt(_table_view.felt_pixel(event.position)):
+			get_viewport().set_input_as_handled()
+
+func _bet_on_felt(pixel: Vector2) -> bool:
+	if Rect2(573, 80, 1457, 545).has_point(pixel):
+		var row := floori((pixel.y - 80) * 3 / 545)
+		if pixel.x < 650:
+			_roul_tap(0)
+		elif pixel.x < 1890:
+			var column := floori((pixel.x - 650) * 12 / 1240)
+			_roul_tap(column * 3 + row + 1)
+		else:
+			_roul_add(ROL.column(2 - row))
+		return true
+	if Rect2(573, 660, 1317, 115).has_point(pixel):
+		_roul_add(ROL.dozen(floori((pixel.x - 573) * 3 / 1317)))
+		return true
+	if Rect2(573, 810, 1457, 125).has_point(pixel):
+		var bets := [ROL.low(), ROL.even(), ROL.red(), ROL.black(), ROL.odd(), ROL.high()]
+		_roul_add(bets[floori((pixel.x - 573) * 6 / 1457)])
+		return true
+	return false
+
+func _roulette_touch_controls(vb: VBoxContainer) -> void:
+	var settings := HBoxContainer.new()
+	var mode := OptionButton.new()
+	mode.add_theme_font_override("font", _font)
+	mode.add_theme_font_size_override("font_size", 21)
+	mode.custom_minimum_size = Vector2(158, 44)
+	for name in ROULETTE_MODE_NAMES:
+		mode.add_item(name)
+	mode.select(ROULETTE_MODES.find(_roul_mode))
+	mode.item_selected.connect(func(index: int) -> void:
+		_roul_mode = ROULETTE_MODES[index]
+		_roul_first = -1
+		_render_roulette())
+	settings.add_child(mode)
+	var denom := OptionButton.new()
+	denom.add_theme_font_override("font", _font)
+	denom.add_theme_font_size_override("font_size", 21)
+	denom.custom_minimum_size = Vector2(137, 44)
+	for amount in ROULETTE_CHIPS:
+		denom.add_item("%d チップ" % amount)
+	denom.select(ROULETTE_CHIPS.find(_roul_denom))
+	denom.item_selected.connect(func(index: int) -> void:
+		_roul_denom = ROULETTE_CHIPS[index])
+	settings.add_child(denom)
+	var hint := "%d を選択中。隣の数字をタップ" % _roul_first if _roul_first >= 0 else "卓上をタップしてベット（最低 %d）" % int(_seated["min_bet"])
+	settings.add_child(_mk_label(hint, 20, CpUi.ICY))
+	vb.add_child(settings)
+
 func _render_roulette() -> void:
 	if is_instance_valid(_table_view):
-		_table_view.frame_table()
+		_table_view.frame_roulette_table()
 		_table_view.clear_chips()
 		for bet in _roul_bets:
 			var numbers: Array = bet["numbers"]
@@ -1095,81 +1164,83 @@ func _render_roulette() -> void:
 			var sample := _roulette_felt_position(bet)
 			_table_view.place_stack(Vector3(sample.x / 2048 * 3.0 - 1.5, 0.851,
 				sample.y / 1024 * 1.6 - 0.8), int(bet["amount"]))
-	var vb := _open_panel("ルーレット（ミニマム %d）" % int(_seated["min_bet"]), Vector2(780, 620), true)
+	var direct := is_instance_valid(_table_view)
+	var vb := _open_panel("ルーレット", Vector2(780, 188 if direct else 620), not direct)
 	vb.add_theme_constant_override("separation", 6)
-	if _roul_result != "":
-		vb.add_child(_mk_label(_roul_result, 22, GOLD))
-	# bet-type mode row
-	var mrow := HBoxContainer.new()
-	mrow.add_theme_constant_override("separation", 6)
-	for mode_pair in [["straight", "ストレート"], ["split", "スプリット"], ["street", "ストリート"], ["corner", "コーナー"], ["sixline", "ライン"]]:
-		var mb := _mk_button(mode_pair[1], CpUi.YELLOW if _roul_mode == mode_pair[0] else CpUi.CYAN, 108)
-		var mv: String = mode_pair[0]
-		mb.pressed.connect(func() -> void:
-			_roul_mode = mv
-			_roul_first = -1
-			_render_roulette())
-		mrow.add_child(mb)
-	vb.add_child(mrow)
-	# number grid: [0] + 12x3 + column bets
-	var grid_row := HBoxContainer.new()
-	grid_row.add_theme_constant_override("separation", 4)
-	var zero := _num_button(0)
-	zero.custom_minimum_size = Vector2(42, 146)
-	grid_row.add_child(zero)
-	var grid := GridContainer.new()
-	grid.columns = 12
-	grid.add_theme_constant_override("h_separation", 4)
-	grid.add_theme_constant_override("v_separation", 4)
-	for row in range(3):
-		for col in range(12):
-			grid.add_child(_num_button(col * 3 + row + 1))
-	grid_row.add_child(grid)
-	var colbox := VBoxContainer.new()
-	colbox.add_theme_constant_override("separation", 4)
-	for ci in [2, 1, 0]:
-		var cb := _mk_button("2:1", CpUi.CYAN, 52)
-		cb.custom_minimum_size = Vector2(52, 46)
-		var civ: int = ci
-		cb.pressed.connect(func() -> void: _roul_add(ROL.column(civ)))
-		colbox.add_child(cb)
-	grid_row.add_child(colbox)
-	vb.add_child(grid_row)
-	# dozens + even-money
-	var drow2 := HBoxContainer.new()
-	drow2.add_theme_constant_override("separation", 4)
-	for di2 in range(3):
-		var db2 := _mk_button(["1st 12", "2nd 12", "3rd 12"][di2], CpUi.CYAN, 120)
-		var dv: int = di2
-		db2.pressed.connect(func() -> void: _roul_add(ROL.dozen(dv)))
-		drow2.add_child(db2)
-	vb.add_child(drow2)
-	var erow := HBoxContainer.new()
-	erow.add_theme_constant_override("separation", 4)
-	var evens: Array = [["1-18", ROL.low()], ["EVEN", ROL.even()], ["RED", ROL.red()], ["BLACK", ROL.black()], ["ODD", ROL.odd()], ["19-36", ROL.high()]]
-	for ep in evens:
-		var eb := _mk_button(String(ep[0]), CpUi.CYAN, 104)
-		var ev: Dictionary = ep[1]
-		eb.pressed.connect(func() -> void: _roul_add(ev))
-		erow.add_child(eb)
-	vb.add_child(erow)
-	# denom row
-	var denrow := HBoxContainer.new()
-	denrow.add_theme_constant_override("separation", 6)
-	denrow.add_child(_mk_label("チップ:", 20, CpUi.ICY))
-	for d in [25, 100, 500, 1000, 5000]:
-		var db3 := _mk_button(str(d), CpUi.YELLOW if _roul_denom == d else CpUi.CYAN_DIM, 84)
-		var dvv: int = d
-		db3.pressed.connect(func() -> void:
-			_roul_denom = dvv
-			_render_roulette())
-		denrow.add_child(db3)
-	vb.add_child(denrow)
-	# summary + actions
-	var parts: Array = []
-	for b in _roul_bets:
-		parts.append("%s:%d" % [String(b["label"]), int(b["amount"])])
-	vb.add_child(_mk_label("ベット: %s" % ("、".join(parts) if not parts.is_empty() else "なし"), 19, CpUi.ICY))
+	if direct:
+		_roulette_touch_controls(vb)
+	else:
+		# bet-type mode row
+		var mrow := HBoxContainer.new()
+		mrow.add_theme_constant_override("separation", 6)
+		for mode_pair in [["straight", "ストレート"], ["split", "スプリット"], ["street", "ストリート"], ["corner", "コーナー"], ["sixline", "ライン"]]:
+			var mb := _mk_button(mode_pair[1], CpUi.YELLOW if _roul_mode == mode_pair[0] else CpUi.CYAN, 108)
+			var mv: String = mode_pair[0]
+			mb.pressed.connect(func() -> void:
+				_roul_mode = mv
+				_roul_first = -1
+				_render_roulette())
+			mrow.add_child(mb)
+		vb.add_child(mrow)
+		# number grid: [0] + 12x3 + column bets
+		var grid_row := HBoxContainer.new()
+		grid_row.add_theme_constant_override("separation", 4)
+		var zero := _num_button(0)
+		zero.custom_minimum_size = Vector2(42, 146)
+		grid_row.add_child(zero)
+		var grid := GridContainer.new()
+		grid.columns = 12
+		grid.add_theme_constant_override("h_separation", 4)
+		grid.add_theme_constant_override("v_separation", 4)
+		for row in range(3):
+			for col in range(12):
+				grid.add_child(_num_button(col * 3 + row + 1))
+		grid_row.add_child(grid)
+		var colbox := VBoxContainer.new()
+		colbox.add_theme_constant_override("separation", 4)
+		for ci in [2, 1, 0]:
+			var cb := _mk_button("2:1", CpUi.CYAN, 52)
+			cb.custom_minimum_size = Vector2(52, 46)
+			var civ: int = ci
+			cb.pressed.connect(func() -> void: _roul_add(ROL.column(civ)))
+			colbox.add_child(cb)
+		grid_row.add_child(colbox)
+		vb.add_child(grid_row)
+		# dozens + even-money
+		var drow2 := HBoxContainer.new()
+		drow2.add_theme_constant_override("separation", 4)
+		for di2 in range(3):
+			var db2 := _mk_button(["1st 12", "2nd 12", "3rd 12"][di2], CpUi.CYAN, 120)
+			var dv: int = di2
+			db2.pressed.connect(func() -> void: _roul_add(ROL.dozen(dv)))
+			drow2.add_child(db2)
+		vb.add_child(drow2)
+		var erow := HBoxContainer.new()
+		erow.add_theme_constant_override("separation", 4)
+		var evens: Array = [["1-18", ROL.low()], ["EVEN", ROL.even()], ["RED", ROL.red()], ["BLACK", ROL.black()], ["ODD", ROL.odd()], ["19-36", ROL.high()]]
+		for ep in evens:
+			var eb := _mk_button(String(ep[0]), CpUi.CYAN, 104)
+			var ev: Dictionary = ep[1]
+			eb.pressed.connect(func() -> void: _roul_add(ev))
+			erow.add_child(eb)
+		vb.add_child(erow)
+		# denom row
+		var denrow := HBoxContainer.new()
+		denrow.add_theme_constant_override("separation", 6)
+		denrow.add_child(_mk_label("チップ:", 20, CpUi.ICY))
+		for d in [25, 100, 500, 1000, 5000]:
+			var db3 := _mk_button(str(d), CpUi.YELLOW if _roul_denom == d else CpUi.CYAN_DIM, 84)
+			var dvv: int = d
+			db3.pressed.connect(func() -> void:
+				_roul_denom = dvv
+				_render_roulette())
+			denrow.add_child(db3)
+		vb.add_child(denrow)
+		# summary + actions
+		var parts: Array = []
+		for b in _roul_bets:
+			parts.append("%s:%d" % [String(b["label"]), int(b["amount"])])
+		vb.add_child(_mk_label("ベット: %s" % ("、".join(parts) if not parts.is_empty() else "なし"), 19, CpUi.ICY))
 	var arow := HBoxContainer.new()
 	arow.add_theme_constant_override("separation", 8)
 	arow.add_child(_mk_label("合計 %d" % _roul_total(), 24, GOLD))
@@ -1200,8 +1271,22 @@ func _render_roulette() -> void:
 	var leave := _mk_button("離席", CpUi.RED, 100)
 	leave.pressed.connect(_unseat)
 	arow.add_child(leave)
-	(vb.get_meta("actions_parent") as VBoxContainer).add_child(arow)
+	var action_parent: VBoxContainer = vb if direct else vb.get_meta("actions_parent")
+	action_parent.add_child(arow)
 	_refresh_bal(vb)
+
+func _make_wheel_click() -> AudioStreamWAV:
+	var wave := AudioStreamWAV.new()
+	wave.format = AudioStreamWAV.FORMAT_16_BITS
+	wave.mix_rate = 22050
+	var samples := PackedByteArray()
+	samples.resize(1800)
+	for i in range(900):
+		var t := float(i) / wave.mix_rate
+		var strike := (sin(t * TAU * 1460.0) + 0.46 * sin(t * TAU * 2780.0)) * exp(-t * 155.0)
+		samples.encode_s16(i * 2, int(strike * 12000.0))
+	wave.data = samples
+	return wave
 
 func _roul_spin() -> void:
 	var total: int = _roul_total()
@@ -1226,9 +1311,17 @@ func _roul_spin() -> void:
 	var a0: float = _rng.randf() * TAU
 	# Independent spin phase and ball travel. Resolve the number from the
 	# final wheel-local ball angle, after the ball has crossed the rim.
-	var a1 := a0 - (4.0 * TAU + _rng.randf() * TAU)
+	# The ball moves clockwise in wheel-local coordinates. Choose the
+	# first pocket it can reach after the randomized travel distance.
+	var travel_end := a0 - (7.0 * TAU + _rng.randf() * TAU)
+	var a1 := floorf(travel_end / Wheel.STEP) * Wheel.STEP
+	var hops: Array[Vector2] = []
+	var bump_time := _rng.randf_range(0.58, 0.65)
+	while bump_time < 0.94:
+		hops.append(Vector2(bump_time, _rng.randf_range(0.018, 0.056) * (1.0 - bump_time) / 0.38))
+		bump_time += _rng.randf_range(0.045, 0.095)
 	_spin = {"pivot": pivot, "t": 0.0, "dur": 5.4,
-		"w0": w0, "w1": w1, "a0": a0, "a1": a1}
+		"w0": w0, "w1": w1, "a0": a0, "a1": a1, "hops": hops, "next_hop": 0}
 	_roulette_landed_pocket = -1
 	_ball.visible = true
 	if is_instance_valid(_table_view):
@@ -1243,17 +1336,24 @@ func _tick_spin(delta: float) -> void:
 	pivot.rotation.y = lerpf(float(_spin["w0"]), float(_spin["w1"]), 1.0 - pow(1.0 - u, 3.0))
 	var a0: float = float(_spin["a0"])
 	var a1: float = float(_spin["a1"])
-	var angle: float = lerpf(a1, a0, pow(1.0 - u, 2.0))
-	var drop := smoothstep(0.52, 0.91, u)
+	var angle := lerpf(a1, a0, pow(1.0 - u, 2.45))
+	var drop := smoothstep(0.54, 0.965, u)
 	var radius := lerpf(0.373, Wheel.POCKET_RADIUS, drop)
 	var height := lerpf(0.152, Wheel.POCKET_HEIGHT + Wheel.BALL_RADIUS, drop)
-	var bounce: float = absf(sin(drop * PI * 3.0)) * (1.0 - drop) * drop * 0.065
-	var world_point := pivot.global_position + Vector3(cos(angle) * radius, height + bounce, sin(angle) * radius)
-	if u >= 1.0:
-		var local := pivot.to_local(world_point)
-		var slot := roundf(atan2(local.z, local.x) / Wheel.STEP) * Wheel.STEP
-		world_point = pivot.to_global(Vector3(cos(slot) * Wheel.POCKET_RADIUS,
-			Wheel.POCKET_HEIGHT + Wheel.BALL_RADIUS, sin(slot) * Wheel.POCKET_RADIUS))
+	var hops: Array = _spin["hops"]
+	var bounce := 0.0
+	for hop in hops:
+		var phase := (u - float(hop.x)) / 0.052
+		if phase >= 0.0 and phase <= 1.0:
+			bounce += sin(phase * PI) * float(hop.y)
+	var next: int = _spin["next_hop"]
+	if next < hops.size() and u >= float(hops[next].x):
+		if _wheel_rattle != null and delta < 0.1:
+			_wheel_rattle.pitch_scale = 1.1 - 0.25 * u + 0.13 * sin(next * 2.4)
+			_wheel_rattle.play()
+		_spin["next_hop"] = next + 1
+	var world_point := pivot.to_global(Vector3(cos(angle) * (radius + bounce * 0.33),
+		height + bounce, sin(angle) * (radius + bounce * 0.33)))
 	_ball.global_position = world_point
 	if u >= 1.0:
 		var pocket := Wheel.result_at(pivot, _ball.global_position)
